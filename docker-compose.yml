@@ -1,0 +1,108 @@
+name: eldercare-cloud
+
+x-postgres-credentials: &postgres-credentials
+  POSTGRES_USER: ${POSTGRES_USER:?请在 .env 中配置 POSTGRES_USER}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中配置 POSTGRES_PASSWORD}
+  POSTGRES_DB: ${POSTGRES_DB:?请在 .env 中配置 POSTGRES_DB}
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      <<: *postgres-credentials
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # 5432 不映射到宿主机（规格要求 PostgreSQL 不对外开放）
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 5s
+    restart: unless-stopped
+
+  mosquitto:
+    image: eclipse-mosquitto:2
+    environment:
+      MQTT_USER: ${MQTT_USER:?请在 .env 中配置 MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?请在 .env 中配置 MQTT_PASSWORD}
+    entrypoint: ["/bin/sh", "/mosquitto/scripts/entrypoint.sh"]
+    volumes:
+      - ./mosquitto/config/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+      - ./mosquitto/entrypoint.sh:/mosquitto/scripts/entrypoint.sh:ro
+      - mosquitto_data:/mosquitto/data
+    ports:
+      - "1883:1883"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_pub -h 127.0.0.1 -u \"$${MQTT_USER}\" -P \"$${MQTT_PASSWORD}\" -t healthcheck -m ok -q 1",
+        ]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # 一次性迁移任务：每次启动把数据库升级到最新版本后退出
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    environment:
+      <<: *postgres-credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-https://pypi.org/simple}
+    environment:
+      <<: *postgres-credentials
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      MQTT_USER: ${MQTT_USER:?请在 .env 中配置 MQTT_USER}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:?请在 .env 中配置 MQTT_PASSWORD}
+      MQTT_HOST: mosquitto
+      MQTT_PORT: "1883"
+      JWT_SECRET: ${JWT_SECRET:?请在 .env 中配置 JWT_SECRET}
+      SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123456}
+      SEED_FAMILY_USERNAME: ${SEED_FAMILY_USERNAME:-family}
+      SEED_FAMILY_PASSWORD: ${SEED_FAMILY_PASSWORD:-family123456}
+    # 宿主机端口可配置：规格默认 8080，若本机 8080 被占用可在 .env 中改 BACKEND_PORT
+    ports:
+      - "${BACKEND_PORT:-8080}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mosquitto:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)\"",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+  mosquitto_data:

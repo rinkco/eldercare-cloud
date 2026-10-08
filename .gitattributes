@@ -1,0 +1,2 @@
+# 容器内执行的脚本必须保持 LF 行尾，避免 Windows 检出后 CRLF 导致 /bin/sh 报错
+*.sh text eol=lf

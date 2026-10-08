@@ -15,7 +15,7 @@
 
 **本规格包含（In）：**
 
-- 云平台后端 MVP：账号、角色与权限（admin / family / elder）。
+- 云平台后端 MVP：账号、角色与权限（admin / family；elder 与 family 共用一个账号，前端提供长辈视图）。
 - 老人档案与紧急联系人管理。
 - 设备管理与设备-老人绑定。
 - MQTT 接入：遥测、事件、状态三类上行消息。
@@ -42,11 +42,8 @@
 
 **后续规格拆分：**
 
-- SPEC 02：用户与老人档案（认证、角色、访问关系、紧急联系人）。
-- SPEC 03：设备接入与遥测（MQTT 接入、设备管理、健康与位置数据存储）。
-- SPEC 04：告警与通知（事件规则、告警生命周期、通知模拟、实时推送）。
-- SPEC 05：健康趋势与统计（聚合查询与活动状态统计）。
-- SPEC 06：隐私安全与审计（权限校验、审计日志、演示安全边界）。
+- 原计划的 SPEC 02–06 模块拆分（用户与老人档案、设备接入与遥测、告警与通知、健康趋势、隐私安全与审计）已并入 SPEC 01 的实现，不再单独开规格。
+- SPEC 02：前端 Web 管理台（elder 与 family 共用账号 + 长辈视图，见 `specs/02-eldercare-web-console.md`）。
 - SPEC 07（可选）：AI 健康摘要与问答（调用在线大模型 API，无 Key 时模板 mock 兜底，不属于 MVP）。
 
 ## 数据模型
@@ -56,7 +53,7 @@
 ```sql
 -- 账号与权限
 users(id, username UNIQUE, password_hash, role, display_name, phone, created_at)
--- role: admin | family | elder
+-- role: admin | family（elder 与 family 共用一个账号；存量 elder 账号在迁移时并入 family）
 
 -- 老人档案与关系
 elders(id, name, gender, birth_date, height_cm, weight_kg, address, notes, created_at)
@@ -173,7 +170,7 @@ audit_logs(id, user_id FK, action, target_type, target_id, ip, detail_json, crea
 - [ ] 装有 Docker Desktop 的 Windows 电脑执行 `docker compose up -d` 后，backend、postgres、mosquitto 三个容器均健康运行。
 - [ ] `GET /healthz` 返回 200，Swagger `/docs` 覆盖全部 MVP 接口。
 - [ ] 种子管理员账号可以登录并拿到 JWT，错误密码返回 401。
-- [ ] family 角色不能访问管理员接口，且只能查询已关联老人的数据。
+- [ ] family 角色不能访问管理员接口，且只能查询已关联老人的数据；elder 与 family 共用同一账号，不存在独立 elder 登录。
 - [ ] 老人档案、紧急联系人和设备绑定接口可以完成增删改查。
 - [ ] MQTT 发布一条心率遥测后 2 秒内写入 `telemetry` 表。
 - [ ] MQTT 发布 fall、sos、geofence_exit、low_battery 四类消息后，分别生成对应的 `events`、`alerts`、`notifications` 记录。
@@ -197,6 +194,7 @@ audit_logs(id, user_id FK, action, target_type, target_id, ip, detail_json, crea
 - **是：** 电子围栏越界和低电量判定放在云端，理由是设备端只需上报位置与电量，规则调整无需改固件。
 - **是：** 通知使用模拟适配器：写 `notifications` 表、打印控制台日志、保留 Webhook 接口。
 - **是：** 最小安全实现：JWT + RBAC + bcrypt + 审计日志。
+- **是：** elder 与 family 共用一个账号（family 账号 + 长辈视图），不再单独维护 elder 角色；理由是课设演示不需要老人独立登录。
 - **否：** 字段级 AES 加密、强制 HTTPS、真实短信和微信 SDK，理由是教学演示且不涉及真实数据。
 - **是：** 演示规模 ≤10 台设备、≤20 个用户、单机部署，不做压测和水平扩展。
 - **是：** 两周内完成，优先保证「MQTT 接入 → 告警 → 通知 → 实时推送」的一键演示链路，趋势统计只做最小聚合。
