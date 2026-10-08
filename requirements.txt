@@ -1,0 +1,14 @@
+# 已验证版本：2026-10-08 容器内 pytest 通过
+fastapi==0.142.4
+uvicorn[standard]==0.54.0
+sqlalchemy==2.1.4
+alembic==1.20.0
+psycopg[binary]==3.3.6
+pydantic-settings==2.15.0
+pyjwt==2.15.1
+bcrypt==5.0.0
+paho-mqtt==2.1.0
+starlette==1.7.0
+websockets==17.2
+pytest==9.1.1
+httpx==0.28.1
