@@ -1,7 +1,7 @@
 # 老人监护云平台 App 端对接文档
 
 > 适用对象：正在开发 iOS / Android / 小程序 / H5 App 的移动端成员。  
-> 适用分支：`spec-02-eldercare-web-console`。  
+> 适用分支：`main`（spec-01 / spec-02 及后续增强均已合并）。  
 > 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
 > 冲突处理：规格与当前代码不一致时，以当前代码为准。
 
@@ -26,11 +26,13 @@ App 端的职责边界：
 - 长辈视图只是前端交互约定，不是后端安全隔离。`family` 账号仍然拥有老人、联系人、围栏、告警确认等写权限。App 的“只读”页面必须隐藏写操作，但不能把它当作安全边界。
 - App 需要实时告警时使用 WebSocket；WebSocket 断开期间用 REST 轮询兜底。
 
-以下事项需要产品/联调双方确认：
+以下事项需要产品/联调双方对齐（含最新进展）：
 
 - App 是否需要展示绑定设备或电量：当前 family 没有对应设备读取接口，是否新增只读接口**待确认**。
-- Android 模拟器、iOS 模拟器、真机和云端环境的具体 API 基址**待确认**。
-- 正式部署是否增加域名、HTTPS 和反向代理：仓库内只有本地 HTTP 配置，生产入口**待确认**。
+- 云端联调地址已就绪：REST API `http://47.109.95.186:8080`、管理台 `http://47.109.95.186:3000`、
+  MQTT `47.109.95.186:1883`；账号口令请联系部署负责人获取，不要写入仓库。
+  模拟器/真机访问宿主机或云端的最终基址仍按各自 App 工程配置确定。
+- 公网演示环境当前为 `IP:端口` 的 HTTP，没有域名与 HTTPS；是否补充 HTTPS 由部署方后续决定。
 
 ## 2. 环境准备与测试数据
 
@@ -45,7 +47,19 @@ App 端的职责边界：
 | Web 管理台 | `http://127.0.0.1:3000` | Next.js + nginx 管理台，不是 App 必需依赖 |
 | MQTT | `mqtt://127.0.0.1:1883` | 设备侧联调使用，App 不直接连接 |
 
-App 在模拟器或真机上运行时，`localhost` 指手机/模拟器自身，不一定是运行后端的电脑。Android 模拟器访问宿主机通常使用 `10.0.2.2`，真机通常使用电脑局域网 IP 或云端地址；实际地址由 App 工程配置决定，**待确认**。
+App 在模拟器或真机上运行时，`localhost` 指手机/模拟器自身，不一定是运行后端的电脑。Android 模拟器访问宿主机通常使用 `10.0.2.2`，真机通常使用电脑局域网 IP 或上面的云端地址；使用本地后端时，具体地址由 App 工程配置决定。
+
+公网演示环境（答辩联调，已部署）：
+
+| 服务 | 地址 | 说明 |
+| --- | --- | --- |
+| REST / Swagger | `http://47.109.95.186:8080` | App 可直接使用该基址，Swagger 在 `/docs` |
+| 管理台 | `http://47.109.95.186:3000` | 注册账号、用户编辑、设备注册与演示数据 |
+| MQTT | `mqtt://47.109.95.186:1883` | 设备侧联调使用，App 不直接连接 |
+
+演示环境的 admin / family / MQTT 口令由部署负责人在联调群内提供，仓库与本文档
+不保存实际口令。服务为云厂商试用实例，停机或重建后公网 IP 可能变化，以群内
+最新公告为准。
 
 ### 2.2 启动后端
 
@@ -209,6 +223,56 @@ App 约定：
 WWW-Authenticate: Bearer
 ```
 
+### 3.4 注册接口（公开）
+
+`POST /api/v1/auth/register`
+
+- 角色：公开接口，无需 Token。
+- 固定创建 `family` 角色账号，不能在请求体里指定角色（出现 `role` 等额外字段返回 422）。
+
+| 字段 | 类型 | 约束 |
+| --- | --- | --- |
+| `username` | string | 3-32 位字母、数字、下划线或连字符 |
+| `password` | string | 6-64 字符，且不超过 bcrypt 的 72 字节 |
+| `display_name` | string \| null | 可选，最长 64 字符 |
+| `phone` | string \| null | 可选，最长 32 字符 |
+
+请求示例：
+
+```json
+{
+  "username": "zhang-family",
+  "password": "family-pass-123",
+  "display_name": "张奶奶女儿",
+  "phone": "13800000000"
+}
+```
+
+成功响应：HTTP 201，返回 `UserOut`（不含 Token，需再调用登录接口）：
+
+```json
+{
+  "id": 3,
+  "username": "zhang-family",
+  "role": "family",
+  "display_name": "张奶奶女儿",
+  "phone": "13800000000"
+}
+```
+
+错误语义：
+
+- 用户名已存在：409，`{"detail": "账号已存在"}`。
+- 字段不合法：422。
+
+注册后的数据可见范围：
+
+- 新账号默认没有任何 `elder_access` 关联，老人列表为空。
+- family 账号调用 `POST /api/v1/elders` 新建老人时会自动建立关联
+  （`relation=creator`），随后即可查看该老人数据。
+- 当前没有“把已有老人关联到某个账号”的管理接口与界面；如需让新账号访问已有
+  老人，需由部署方在数据库或种子脚本中补充 `elder_access` 行。
+
 ## 4. 角色与数据可见范围
 
 当前只有两个角色：
@@ -232,8 +296,10 @@ WWW-Authenticate: Bearer
 | 事件列表 | 全量 | 自动过滤到关联老人 |
 | 告警列表 / 确认 | 全量 | 仅关联老人 |
 | 通知记录 | 全量 | 仅关联告警对应老人 |
-| 用户列表 | 是 | 否，返回 403 |
+| 用户列表 / 用户编辑 | 是 | 否，返回 403 |
 | 长辈视图 | Web/App 展示层可预览或使用 | 展示层只读，但账号权限没有降级 |
+
+注册接口（`POST /api/v1/auth/register`）公开可用，注册结果固定为 `family` 角色。
 
 ### 4.2 可见范围语义
 
@@ -624,6 +690,19 @@ curl.exe -sS "http://127.0.0.1:8080/api/v1/elders/1/telemetry?metric=heart_rate&
   传 `null` 表示清空；`username` 不可修改。
 - 降级管理员时系统需至少保留一个管理员，否则返回 400；用户不存在返回 404。
 
+PATCH 请求示例（省略字段表示不修改；`display_name` / `phone` 传 `null` 表示清空）：
+
+```json
+{
+  "display_name": "张奶奶女儿",
+  "phone": "13800000000",
+  "role": "family",
+  "password": "new-pass-456"
+}
+```
+
+`GET /api/v1/users` 响应示例：
+
 ```json
 [
   {
@@ -760,6 +839,13 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `UserOut` | `role` | string | `admin` 或 `family` |
 | `UserOut` | `display_name` | string \| null | 展示名 |
 | `UserOut` | `phone` | string \| null | 手机号 |
+| `RegisterRequest` | `username` | string | 3-32 位字母、数字、下划线或连字符，唯一 |
+| `RegisterRequest` | `password` | string | 6-64 字符；bcrypt 实际限制 72 字节 |
+| `RegisterRequest` | `display_name` | string \| null | 可选，最长 64 字符 |
+| `RegisterRequest` | `phone` | string \| null | 可选，最长 32 字符 |
+| `UserUpdate` | `display_name` / `phone` | string \| null | 省略不修改；传 `null` 清空 |
+| `UserUpdate` | `role` | string \| null | `admin` 或 `family`；省略不修改，不允许显式 `null` |
+| `UserUpdate` | `password` | string \| null | 重置密码；6-64 字符、≤72 字节 |
 
 ### 7.2 老人与联系人
 
@@ -994,7 +1080,8 @@ onClose(code):
 | 401 | 未带 Token、Token 无效/过期、登录账号密码错误 | 清理会话并重新登录 |
 | 403 | family 访问设备/用户管理接口，或访问未关联老人/告警 | 提示无权限，不重复请求同一资源 |
 | 404 | 老人、设备、告警不存在，或路径不存在 | 刷新列表；如果是旧 ID，移除本地缓存 |
-| 409 | 设备 UID 重复、重复绑定、设备被占用、设备停用 | 展示 `detail`，刷新设备状态 |
+| 400 | 业务校验失败，例如把系统中最后一个管理员降级 | 展示 `detail`，不重试 |
+| 409 | 设备 UID 重复、重复绑定、设备被占用、设备停用、注册用户名已存在 | 展示 `detail`，刷新设备状态 |
 | 422 | 字段缺失、类型错误、额外字段、数值越界、时间不带时区、多个主联系人 | 定位请求字段并修正 |
 | 503 | `/readyz` 检测到数据库、迁移或 MQTT 未就绪 | 后端不可用，延迟重试并提示联调环境未就绪 |
 
@@ -1054,6 +1141,8 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - 联系人列表出现多个 `is_primary=true`。
 - 更新老人时显式提交 `"name": null`。
 - 手机号、设备 UID、围栏名称等长度约束不满足。
+- 注册用户名不是 3-32 位字母、数字、下划线或连字符（例如包含空格）。
+- 注册或重置密码少于 6 字符、超过 64 字符，或超过 bcrypt 的 72 字节。
 
 登录请求模型没有配置额外字段禁止，多余字段可能被忽略；App 仍应只发送 `username` 和 `password`。
 
@@ -1127,12 +1216,16 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - [ ] family 调用未关联老人的详情/联系人/围栏/遥测返回 403；事件/告警列表不会泄露未关联老人。
 - [ ] 使用过期或错误 Token 时，App 能清理本地会话并回到登录页。
 - [ ] App 不显示长辈视图中的写操作入口，并已明确该视图不是安全隔离。
+- [ ] 注册接口能创建 family 账号（201），重复用户名返回 409，注册后可用新账号登录。
+- [ ] admin 可通过 `PATCH /api/v1/users/{id}` 编辑显示名/手机号/角色并重置密码。
 
 ## 11. 已知限制与不在范围内的事项
 
 - 本地与当前 compose 默认使用 HTTP，不包含 HTTPS、TLS 证书和 WAF。
 - 没有 refresh token、Token 续期接口、Token 吊销接口和服务端 logout。
-- 没有给 App 使用的账号注册、停用、改密、找回密码接口；账号由 seed 和 `.env` 管理。
+- 已提供公开注册（`POST /api/v1/auth/register`，固定 family 角色）与 admin 用户编辑
+  （`PATCH /api/v1/users/{id}`）；仍没有账号停用/删除、找回密码、自助改密，
+  也没有“把已有老人关联到账号”的管理接口；演示账号仍由 seed 与 `.env` 同步。
 - 没有 `/api/v1/me/*` 老人专属接口。
 - 没有独立 `elder` 登录角色；老人和 family 共用一个账号。
 - 长辈视图只读是展示层约定，不是权限隔离。

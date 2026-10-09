@@ -72,8 +72,7 @@ export default function RegisterPage() {
         注册家属账号
       </h2>
       <p className="mt-2 text-[13px] leading-5 text-ink-muted">
-        注册后即可登录管理台；如需查看老人数据，请让管理员在「老人档案」中
-        为账号关联老人。
+        注册后即可登录管理台；在「老人档案」中新建老人会自动关联当前账号。
       </p>
 
       <form onSubmit={handleSubmit} className="mt-7 space-y-4">
