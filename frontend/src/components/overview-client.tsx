@@ -202,11 +202,6 @@ export function OverviewClient() {
     <div>
       <PageHeader
         title="概览台"
-        description={
-          isAdmin
-            ? "全部老人、设备与告警的实时运行状态。"
-            : "你关联老人的健康、告警与实时动态。"
-        }
         actions={
           <Button
             variant="secondary"

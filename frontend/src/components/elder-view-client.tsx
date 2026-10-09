@@ -606,7 +606,6 @@ function ElderViewContent({
     <div>
       <PageHeader
         title="长辈视图"
-        description="只读展示档案、联系人、遥测、健康趋势和最近告警。"
         actions={
           <Link
             href="/"

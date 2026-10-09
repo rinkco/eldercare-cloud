@@ -166,13 +166,8 @@ function BrandMark() {
       <span className="flex size-8 items-center justify-center rounded-[7px] border border-brand/30 bg-brand/12">
         <Activity className="size-4 text-brand" aria-hidden="true" />
       </span>
-      <span>
-        <span className="block text-[14px] font-medium leading-5 text-ink">
-          老人监护云
-        </span>
-        <span className="block text-[11px] leading-4 text-ink-muted/80">
-          教学演示平台
-        </span>
+      <span className="text-[14px] font-medium leading-5 text-ink">
+        老人监护云
       </span>
     </div>
   );

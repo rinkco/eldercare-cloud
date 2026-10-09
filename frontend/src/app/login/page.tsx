@@ -56,43 +56,16 @@ export default function LoginPage() {
 
   return (
     <div className="grid min-h-dvh lg:grid-cols-[1.05fr_0.95fr]">
-      <section className="relative hidden overflow-hidden border-r border-line bg-panel/40 lg:flex lg:flex-col lg:justify-between lg:px-14 lg:py-12">
-        <div className="flex items-center gap-2.5">
+      <section className="relative hidden overflow-hidden border-r border-line bg-panel/40 lg:flex lg:items-center lg:justify-center lg:px-14">
+        <div className="absolute left-14 top-12 z-10 flex items-center gap-2.5">
           <span className="flex size-9 items-center justify-center rounded-[8px] border border-brand/30 bg-brand/12">
             <Activity className="size-4.5 text-brand" aria-hidden="true" />
           </span>
-          <div>
-            <p className="text-[15px] font-medium text-ink">老人监护云</p>
-            <p className="text-[12px] text-ink-muted">教学演示平台</p>
-          </div>
-        </div>
-
-        <div className="relative z-10 max-w-lg">
-          <h1 className="text-[34px] font-medium leading-[1.3] text-ink">
-            从设备接入到告警处理，
-            <br />
-            一条完整的监护链路
-          </h1>
-          <p className="mt-4 text-[14px] leading-7 text-ink-muted">
-            设备遥测、健康趋势、电子围栏、跌倒告警与通知记录汇总在同一个界面，
-            用于课程答辩与功能演示。
-          </p>
-          <ul className="mt-8 space-y-2.5 text-[13px] text-ink-muted">
-            {[
-              "实时推送新告警与遥测摘要",
-              "心率、血氧、步数与活动趋势",
-              "围栏整体替换与告警确认闭环",
-            ].map((item) => (
-              <li key={item} className="flex items-center gap-2">
-                <span className="size-1 rounded-full bg-brand" />
-                {item}
-              </li>
-            ))}
-          </ul>
+          <span className="text-[15px] font-medium text-ink">老人监护云</span>
         </div>
 
         <svg
-          className="pointer-events-none absolute bottom-10 left-0 w-[140%] text-brand/25"
+          className="pointer-events-none relative w-[180%] min-w-[680px] max-w-[1180px] text-brand/30"
           viewBox="0 0 1200 160"
           fill="none"
           aria-hidden="true"
@@ -121,9 +94,6 @@ export default function LoginPage() {
           <h2 className="text-[24px] font-medium leading-8 text-ink">
             登录管理台
           </h2>
-          <p className="mt-1.5 text-[13px] leading-6 text-ink-muted">
-            使用演示账号进入，会话在关闭标签页后失效。
-          </p>
 
           <form onSubmit={handleSubmit} className="mt-7 space-y-4">
             <div>
@@ -179,7 +149,7 @@ export default function LoginPage() {
           </form>
 
           <div className="mt-8 border-t border-line pt-5">
-            <p className="text-[12px] text-ink-muted">演示账号</p>
+            <p className="text-[12px] text-ink-muted">快捷登录</p>
             <div className="mt-2 grid gap-2 sm:grid-cols-2">
               {DEMO_ACCOUNTS.map((account) => (
                 <button

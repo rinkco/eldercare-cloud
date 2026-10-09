@@ -418,11 +418,6 @@ function HealthContent({ onReloadElders }: { onReloadElders: () => void }) {
     <div>
       <PageHeader
         title="健康数据"
-        description={
-          selectedElder
-            ? `正在查看 ${selectedElder.name} 的健康趋势。`
-            : "按小时或按天查看老人心率、血氧、步数和活动分布。"
-        }
       />
 
       <FilterBar>

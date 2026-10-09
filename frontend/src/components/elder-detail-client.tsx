@@ -594,7 +594,7 @@ export function ElderDetailClient() {
   if (idState === "invalid") {
     return (
       <div>
-        <PageHeader title="老人详情" description="读取老人编号失败。" />
+        <PageHeader title="老人详情" />
         <div className="rounded-[8px] border border-line bg-panel">
           <ErrorState message={idMessage} />
           <div className="flex justify-center pb-8">
@@ -611,7 +611,7 @@ export function ElderDetailClient() {
   if (notFound) {
     return (
       <div>
-        <PageHeader title="老人详情" description="该档案不存在或已经被删除。" />
+        <PageHeader title="老人详情" />
         <div className="rounded-[8px] border border-line bg-panel">
           <ErrorState message="老人档案不存在。" />
           <div className="flex justify-center pb-8">
@@ -629,11 +629,6 @@ export function ElderDetailClient() {
     <div>
       <PageHeader
         title={elder?.name ?? "老人详情"}
-        description={
-          elder
-            ? `${elder.name} 的档案、联系人、设备和最近监护记录。`
-            : "查看档案、联系人、设备、电子围栏与最近监护记录。"
-        }
         actions={
           <>
             <Button
