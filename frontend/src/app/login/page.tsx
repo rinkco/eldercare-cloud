@@ -9,10 +9,23 @@ import { FieldError, Input, Label } from "@/components/ui/input";
 import { ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 
+// 快捷登录账号在构建时由 NEXT_PUBLIC_DEMO_* 注入，默认与演示口令一致；
+// 自定义口令的部署（如公网演示）需同步配置，否则快捷登录会提示密码错误。
 const DEMO_ACCOUNTS = [
-  { label: "管理员账号", username: "admin", password: "admin123456" },
-  { label: "家属账号", username: "family", password: "family123456" },
+  {
+    label: "管理员账号",
+    username: process.env.NEXT_PUBLIC_DEMO_ADMIN_USERNAME || "admin",
+    password: process.env.NEXT_PUBLIC_DEMO_ADMIN_PASSWORD || "admin123456",
+  },
+  {
+    label: "家属账号",
+    username: process.env.NEXT_PUBLIC_DEMO_FAMILY_USERNAME || "family",
+    password: process.env.NEXT_PUBLIC_DEMO_FAMILY_PASSWORD || "family123456",
+  },
 ];
+
+const DEMO_LOGIN_ENABLED =
+  (process.env.NEXT_PUBLIC_DEMO_LOGIN_ENABLED || "true") !== "false";
 
 export default function LoginPage() {
   const { login, session, ready } = useAuth();
@@ -148,29 +161,31 @@ export default function LoginPage() {
             </Button>
           </form>
 
-          <div className="mt-8 border-t border-line pt-5">
-            <p className="text-[12px] text-ink-muted">快捷登录</p>
-            <div className="mt-2 grid gap-2 sm:grid-cols-2">
-              {DEMO_ACCOUNTS.map((account) => (
-                <button
-                  key={account.username}
-                  type="button"
-                  onClick={() => fillAccount(account)}
-                  className="flex items-center justify-between rounded-[6px] border border-line bg-panel px-3 py-2.5 text-left transition-colors hover:border-line-strong"
-                >
-                  <span>
-                    <span className="block text-[12px] text-ink-muted">
-                      {account.label}
+          {DEMO_LOGIN_ENABLED ? (
+            <div className="mt-8 border-t border-line pt-5">
+              <p className="text-[12px] text-ink-muted">快捷登录</p>
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                {DEMO_ACCOUNTS.map((account) => (
+                  <button
+                    key={account.username}
+                    type="button"
+                    onClick={() => fillAccount(account)}
+                    className="flex items-center justify-between rounded-[6px] border border-line bg-panel px-3 py-2.5 text-left transition-colors hover:border-line-strong"
+                  >
+                    <span>
+                      <span className="block text-[12px] text-ink-muted">
+                        {account.label}
+                      </span>
+                      <span className="block text-[13px] text-ink">
+                        {account.username}
+                      </span>
                     </span>
-                    <span className="block text-[13px] text-ink">
-                      {account.username}
-                    </span>
-                  </span>
-                  <ChevronRight className="size-4 text-ink-muted/70" />
-                </button>
-              ))}
+                    <ChevronRight className="size-4 text-ink-muted/70" />
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
+          ) : null}
         </div>
       </section>
     </div>

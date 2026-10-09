@@ -176,11 +176,15 @@ docker compose down -v                  # 清空数据库卷，重新开始
 | `MQTT_USER/PASSWORD` | eldercare | MQTT 账号（公网部署务必改强口令） |
 | `JWT_SECRET` | 空 | 必填，至少 32 字节随机值，启动时校验 |
 | `PIP_INDEX_URL` | pypi.org | 国内网络慢时可改为清华镜像 |
+| `NEXT_PUBLIC_DEMO_LOGIN_ENABLED` | true | 登录页是否显示「快捷登录」；公开演示可置 false |
+| `NEXT_PUBLIC_DEMO_*_PASSWORD` | admin123456 / family123456 | 快捷登录注入的演示口令，需与 `SEED_*` 一致 |
 
 ## 云端部署（答辩演示）
 
 1. Ubuntu 云服务器安装 Docker + Docker Compose；安全组开放 8080、3000、1883（1883 建议限制来源），22 仅允许管理员 IP。
-2. 上传代码，按上面的「快速开始」创建 `.env`，务必更换数据库/MQTT/SEED_* 口令与 JWT 密钥。
+2. 上传代码，按上面的「快速开始」创建 `.env`，务必更换数据库/MQTT/SEED_* 口令与 JWT 密钥；
+   若改了 `SEED_*` 口令，需同步修改 `NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` / `NEXT_PUBLIC_DEMO_FAMILY_PASSWORD`
+   （登录页快捷登录注入口令），或设 `NEXT_PUBLIC_DEMO_LOGIN_ENABLED=false` 隐藏快捷登录。
 3. `docker compose up -d --build`，确认 `migrate` Exited (0)、四个容器 healthy。
 4. 手机流量访问 `http://<公网IP>:3000` 打开管理台完成演示；`http://<公网IP>:8080/docs` 为 Swagger；外部设备用带用户名密码的 MQTT 连接 1883。
 5. 本地环境保持可用，作为答辩兜底。
