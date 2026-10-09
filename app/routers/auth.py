@@ -75,11 +75,20 @@ def login(
     response_model=UserOut,
     status_code=status.HTTP_201_CREATED,
     summary="注册家属账号（公开）",
+    response_description="注册成功，返回新账号信息（不含 Token）",
+    responses={
+        409: {
+            "description": "账号已存在",
+            "content": {
+                "application/json": {"example": {"detail": "账号已存在"}}
+            },
+        }
+    },
 )
 def register(
     payload: RegisterRequest, request: Request, db: Session = Depends(get_db)
 ) -> User:
-    """开放注册：固定创建 family 角色账号，用户名重复返回 409。"""
+    """开放注册：固定创建 family 角色账号，用户名重复返回 409；注册后需再调用登录接口获取 JWT。"""
     user = User(
         username=payload.username,
         password_hash=hash_password(payload.password),

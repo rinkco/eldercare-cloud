@@ -39,6 +39,21 @@ install_log_redaction()
 
 APP_NAME = "老人监护云平台 API"
 
+OPENAPI_TAGS = [
+    {"name": "系统", "description": "健康与就绪探针。"},
+    {"name": "认证", "description": "注册、登录并签发 JWT。"},
+    {"name": "用户管理", "description": "管理员查看与编辑账号（仅 admin）。"},
+    {
+        "name": "老人档案",
+        "description": "老人档案与紧急联系人；family 仅能访问已关联的老人。",
+    },
+    {"name": "遥测与趋势", "description": "遥测查询与小时/天健康趋势。"},
+    {"name": "设备管理", "description": "设备注册、列表与绑定（仅 admin）。"},
+    {"name": "电子围栏", "description": "电子围栏读取与整表替换。"},
+    {"name": "事件与告警", "description": "事件列表、告警确认与通知记录。"},
+    {"name": "实时推送", "description": "WebSocket 实时推送（JWT 通过查询参数传递）。"},
+]
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -56,8 +71,14 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(
     title=APP_NAME,
-    version="0.1.0",
-    description="老人跌倒检测健康监护系统云平台后端（教学演示）。",
+    version="0.2.0",
+    description=(
+        "老人跌倒检测健康监护系统云平台后端（教学演示）："
+        "MQTT 设备接入、健康与位置数据、告警通知、账号注册与用户管理。"
+        "除公开接口外，请先调用 `/api/v1/auth/login` 获取 JWT，"
+        "再在 Swagger 右上角 Authorize 中填入。"
+    ),
+    openapi_tags=OPENAPI_TAGS,
     lifespan=lifespan,
 )
 

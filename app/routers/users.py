@@ -34,6 +34,23 @@ def list_users(
     "/{user_id}",
     response_model=UserOut,
     summary="编辑用户（仅 admin）",
+    response_description="返回更新后的账号信息",
+    responses={
+        400: {
+            "description": "业务校验失败（例如降级系统中最后一个管理员）",
+            "content": {
+                "application/json": {
+                    "example": {"detail": "系统需要至少保留一个管理员"}
+                }
+            },
+        },
+        404: {
+            "description": "用户不存在",
+            "content": {
+                "application/json": {"example": {"detail": "用户不存在"}}
+            },
+        },
+    },
 )
 def update_user(
     user_id: int,

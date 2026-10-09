@@ -7,21 +7,52 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class LoginRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=64)
-    password: str = Field(min_length=1, max_length=128)
+    """登录请求。"""
+
+    username: str = Field(min_length=1, max_length=64, description="账号")
+    password: str = Field(min_length=1, max_length=128, description="密码")
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"username": "family", "password": "family123456"}]
+        }
+    )
 
 
 class RegisterRequest(BaseModel):
     """公开注册请求：仅创建 family 角色账号。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "username": "zhang-family",
+                    "password": "family-pass-123",
+                    "display_name": "张奶奶女儿",
+                    "phone": "13800000000",
+                }
+            ]
+        },
+    )
 
     username: str = Field(
-        min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$"
+        min_length=3,
+        max_length=32,
+        pattern=r"^[A-Za-z0-9_-]+$",
+        description="账号：3-32 位字母、数字、下划线或连字符，全局唯一",
     )
-    password: str = Field(min_length=6, max_length=64)
-    display_name: str | None = Field(default=None, max_length=64)
-    phone: str | None = Field(default=None, max_length=32)
+    password: str = Field(
+        min_length=6,
+        max_length=64,
+        description="密码：6-64 字符，且不超过 72 字节",
+    )
+    display_name: str | None = Field(
+        default=None, max_length=64, description="显示名（可选）"
+    )
+    phone: str | None = Field(
+        default=None, max_length=32, description="手机号（可选，不校验格式）"
+    )
 
     @model_validator(mode="after")
     def _reject_password_over_bcrypt_limit(self) -> "RegisterRequest":
@@ -32,31 +63,69 @@ class RegisterRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
-    expires_in: int
-    role: str
+    access_token: str = Field(description="JWT；REST 与 WebSocket 鉴权都使用它")
+    token_type: str = Field(default="bearer", description="当前固定为 bearer")
+    expires_in: int = Field(description="有效期秒数")
+    role: str = Field(description="角色：admin 或 family")
 
 
 class UserOut(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
+    """账号信息（不含密码哈希）。"""
 
-    id: int
-    username: str
-    role: str
-    display_name: str | None = None
-    phone: str | None = None
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_schema_extra={
+            "examples": [
+                {
+                    "id": 3,
+                    "username": "zhang-family",
+                    "role": "family",
+                    "display_name": "张奶奶女儿",
+                    "phone": "13800000000",
+                }
+            ]
+        },
+    )
+
+    id: int = Field(description="用户 ID")
+    username: str = Field(description="账号")
+    role: str = Field(description="角色：admin 或 family")
+    display_name: str | None = Field(default=None, description="显示名")
+    phone: str | None = Field(default=None, description="手机号")
 
 
 class UserUpdate(BaseModel):
     """管理员编辑用户：省略字段表示不修改，显式 null 表示清空。"""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "examples": [
+                {
+                    "display_name": "张奶奶女儿",
+                    "phone": "13800000000",
+                    "role": "family",
+                    "password": "new-pass-456",
+                }
+            ]
+        },
+    )
 
-    display_name: str | None = Field(default=None, max_length=64)
-    phone: str | None = Field(default=None, max_length=32)
-    role: Literal["admin", "family"] | None = None
-    password: str | None = Field(default=None, min_length=6, max_length=64)
+    display_name: str | None = Field(
+        default=None, max_length=64, description="显示名；传 null 表示清空"
+    )
+    phone: str | None = Field(
+        default=None, max_length=32, description="手机号；传 null 表示清空"
+    )
+    role: Literal["admin", "family"] | None = Field(
+        default=None, description="角色：admin 或 family；省略不修改，不允许显式 null"
+    )
+    password: str | None = Field(
+        default=None,
+        min_length=6,
+        max_length=64,
+        description="重置密码：6-64 字符、≤72 字节；省略表示不修改",
+    )
 
     @model_validator(mode="after")
     def _validate_update(self) -> "UserUpdate":
