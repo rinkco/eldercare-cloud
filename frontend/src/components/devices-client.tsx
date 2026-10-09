@@ -211,7 +211,6 @@ function DevicesContent() {
     <div>
       <PageHeader
         title="设备管理"
-        description="注册终端并绑定老人，设备状态和最近在线时间会自动更新。"
         actions={
           <div className="flex items-center gap-2">
             <Button

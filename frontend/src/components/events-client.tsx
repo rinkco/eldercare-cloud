@@ -205,7 +205,6 @@ export function EventsClient() {
     <div>
       <PageHeader
         title="事件记录"
-        description="按类型、状态、老人和发生时间查询原始事件，最多返回最近 200 条。"
         actions={
           <Button
             variant="secondary"

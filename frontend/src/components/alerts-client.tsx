@@ -332,7 +332,6 @@ export function AlertsClient() {
     <div>
       <PageHeader
         title="告警中心"
-        description="按状态、老人和时间筛选最近 500 条告警，确认后会同步更新处理状态。"
         actions={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <span className="hidden sm:block">

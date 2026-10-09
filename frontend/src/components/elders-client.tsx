@@ -129,11 +129,6 @@ export function EldersClient() {
     <div>
       <PageHeader
         title="老人档案"
-        description={
-          isAdmin
-            ? "管理员可见全部老人档案，可在此查看、编辑和新建档案。"
-            : "家属仅可见与自己关联的老人档案。"
-        }
         actions={
           <Button
             variant="primary"

@@ -8,7 +8,6 @@ import {
 import { useRouter } from "next/navigation";
 import {
   useEffect,
-  useMemo,
   useState,
   type FormEvent,
 } from "react";
@@ -212,16 +211,6 @@ export function ElderEditClient() {
   const pageTitle =
     idState === "invalid" ? "老人编辑" : isEditing ? "编辑老人" : "新建老人";
 
-  const pageDescription = useMemo(
-    () =>
-      idState === "invalid"
-        ? "请返回老人列表，选择一个有效的档案再次编辑。"
-        : isEditing
-          ? "修改档案后会立即保存到老人监护云。"
-          : "填写基础档案，保存后即可继续配置联系人和监护设备。",
-    [idState, isEditing]
-  );
-
   const updateField = <Key extends keyof ElderFormState>(
     key: Key,
     value: ElderFormState[Key]
@@ -306,7 +295,7 @@ export function ElderEditClient() {
   if (idState === "invalid") {
     return (
       <div>
-        <PageHeader title={pageTitle} description={pageDescription} />
+        <PageHeader title={pageTitle} />
         <div className="rounded-[8px] border border-line bg-panel">
           <ErrorState message="链接中的老人编号无效，请返回列表重新选择。" />
           <div className="flex justify-center pb-8">
@@ -323,7 +312,7 @@ export function ElderEditClient() {
   if (isEditing && loadError) {
     return (
       <div>
-        <PageHeader title={pageTitle} description={pageDescription} />
+        <PageHeader title={pageTitle} />
         <div className="rounded-[8px] border border-line bg-panel">
           <ErrorState
             message={loadError}
@@ -344,7 +333,6 @@ export function ElderEditClient() {
     <div>
       <PageHeader
         title={pageTitle}
-        description={pageDescription}
         actions={
           <Button variant="secondary" onClick={goBack}>
             <ArrowLeft />

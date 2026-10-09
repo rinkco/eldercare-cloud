@@ -60,7 +60,6 @@ export function UsersClient() {
     <div>
       <PageHeader
         title="用户列表"
-        description="查看系统中的管理员与家属账号，账号内容由后端种子配置维护。"
         actions={
           <Button
             variant="secondary"
