@@ -1,0 +1,208 @@
+"use client";
+
+import { Activity, ChevronRight, LockKeyhole, UserRound } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useState, type FormEvent } from "react";
+
+import { Button } from "@/components/ui/button";
+import { FieldError, Input, Label } from "@/components/ui/input";
+import { ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
+
+const DEMO_ACCOUNTS = [
+  { label: "管理员账号", username: "admin", password: "admin123456" },
+  { label: "家属账号", username: "family", password: "family123456" },
+];
+
+export default function LoginPage() {
+  const { login, session, ready } = useAuth();
+  const router = useRouter();
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (ready && session) {
+      router.replace("/");
+    }
+  }, [ready, session, router]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!username.trim() || !password) {
+      setError("请输入账号和密码");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      await login(username.trim(), password);
+      router.replace("/");
+    } catch (caught) {
+      setError(
+        caught instanceof ApiError ? caught.message : "登录失败，请稍后重试"
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function fillAccount(account: (typeof DEMO_ACCOUNTS)[number]) {
+    setUsername(account.username);
+    setPassword(account.password);
+    setError(null);
+  }
+
+  return (
+    <div className="grid min-h-dvh lg:grid-cols-[1.05fr_0.95fr]">
+      <section className="relative hidden overflow-hidden border-r border-line bg-panel/40 lg:flex lg:flex-col lg:justify-between lg:px-14 lg:py-12">
+        <div className="flex items-center gap-2.5">
+          <span className="flex size-9 items-center justify-center rounded-[8px] border border-brand/30 bg-brand/12">
+            <Activity className="size-4.5 text-brand" aria-hidden="true" />
+          </span>
+          <div>
+            <p className="text-[15px] font-medium text-ink">老人监护云</p>
+            <p className="text-[12px] text-ink-muted">教学演示平台</p>
+          </div>
+        </div>
+
+        <div className="relative z-10 max-w-lg">
+          <h1 className="text-[34px] font-medium leading-[1.3] text-ink">
+            从设备接入到告警处理，
+            <br />
+            一条完整的监护链路
+          </h1>
+          <p className="mt-4 text-[14px] leading-7 text-ink-muted">
+            设备遥测、健康趋势、电子围栏、跌倒告警与通知记录汇总在同一个界面，
+            用于课程答辩与功能演示。
+          </p>
+          <ul className="mt-8 space-y-2.5 text-[13px] text-ink-muted">
+            {[
+              "实时推送新告警与遥测摘要",
+              "心率、血氧、步数与活动趋势",
+              "围栏整体替换与告警确认闭环",
+            ].map((item) => (
+              <li key={item} className="flex items-center gap-2">
+                <span className="size-1 rounded-full bg-brand" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </div>
+
+        <svg
+          className="pointer-events-none absolute bottom-10 left-0 w-[140%] text-brand/25"
+          viewBox="0 0 1200 160"
+          fill="none"
+          aria-hidden="true"
+        >
+          <path
+            d="M0 96H180L208 96L226 60L250 132L272 30L296 96H430L452 96L470 72L490 118L508 54L528 96H720L744 96L762 64L786 128L806 40L828 96H1200"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </section>
+
+      <section className="flex items-center justify-center px-5 py-10 sm:px-8">
+        <div className="w-full max-w-[380px]">
+          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+            <span className="flex size-8 items-center justify-center rounded-[7px] border border-brand/30 bg-brand/12">
+              <Activity className="size-4 text-brand" aria-hidden="true" />
+            </span>
+            <span className="text-[15px] font-medium text-ink">
+              老人监护云
+            </span>
+          </div>
+
+          <h2 className="text-[24px] font-medium leading-8 text-ink">
+            登录管理台
+          </h2>
+          <p className="mt-1.5 text-[13px] leading-6 text-ink-muted">
+            使用演示账号进入，会话在关闭标签页后失效。
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-7 space-y-4">
+            <div>
+              <Label htmlFor="username">账号</Label>
+              <div className="relative">
+                <UserRound className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted/70" />
+                <Input
+                  id="username"
+                  name="username"
+                  autoComplete="username"
+                  className="pl-9"
+                  placeholder="请输入账号"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "login-error" : undefined}
+                />
+              </div>
+            </div>
+
+            <div>
+              <Label htmlFor="password">密码</Label>
+              <div className="relative">
+                <LockKeyhole className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted/70" />
+                <Input
+                  id="password"
+                  name="password"
+                  type="password"
+                  autoComplete="current-password"
+                  className="pl-9"
+                  placeholder="请输入密码"
+                  value={password}
+                  onChange={(event) => setPassword(event.target.value)}
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? "login-error" : undefined}
+                />
+              </div>
+            </div>
+
+            <div id="login-error">
+              <FieldError>{error}</FieldError>
+            </div>
+
+            <Button
+              type="submit"
+              variant="primary"
+              size="lg"
+              className="w-full"
+              disabled={busy}
+            >
+              {busy ? "正在登录…" : "登录"}
+            </Button>
+          </form>
+
+          <div className="mt-8 border-t border-line pt-5">
+            <p className="text-[12px] text-ink-muted">演示账号</p>
+            <div className="mt-2 grid gap-2 sm:grid-cols-2">
+              {DEMO_ACCOUNTS.map((account) => (
+                <button
+                  key={account.username}
+                  type="button"
+                  onClick={() => fillAccount(account)}
+                  className="flex items-center justify-between rounded-[6px] border border-line bg-panel px-3 py-2.5 text-left transition-colors hover:border-line-strong"
+                >
+                  <span>
+                    <span className="block text-[12px] text-ink-muted">
+                      {account.label}
+                    </span>
+                    <span className="block text-[13px] text-ink">
+                      {account.username}
+                    </span>
+                  </span>
+                  <ChevronRight className="size-4 text-ink-muted/70" />
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}

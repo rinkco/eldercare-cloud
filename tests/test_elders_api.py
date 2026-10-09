@@ -159,18 +159,6 @@ def test_family_creator_gets_access(
         _cleanup_elders(db, [elder["id"]])
 
 
-def test_elder_role_cannot_access_elder_apis(
-    client: TestClient, seeded_users
-) -> None:
-    token = _login(
-        client, seeded_users.elder.username, seeded_users.elder_password
-    )
-
-    response = client.get("/api/v1/elders", headers=_headers(token))
-
-    assert response.status_code == 403
-
-
 def test_contacts_replace_flow(client: TestClient, db, seeded_users) -> None:
     token = _login(
         client, seeded_users.admin.username, seeded_users.admin_password
@@ -269,29 +257,5 @@ def test_contacts_reject_multiple_primary(
             ],
         )
         assert response.status_code == 422
-    finally:
-        _cleanup_elders(db, [elder["id"]])
-
-
-def test_elder_role_gets_403_for_existing_and_missing_detail(
-    client: TestClient, db, seeded_users
-) -> None:
-    admin_token = _login(
-        client, seeded_users.admin.username, seeded_users.admin_password
-    )
-    elder_user_token = _login(
-        client, seeded_users.elder.username, seeded_users.elder_password
-    )
-    elder = _create_elder(client, admin_token, "测试角色边界老人")
-
-    try:
-        existing = client.get(
-            f"/api/v1/elders/{elder['id']}", headers=_headers(elder_user_token)
-        )
-        missing = client.get(
-            "/api/v1/elders/99999999", headers=_headers(elder_user_token)
-        )
-        assert existing.status_code == 403
-        assert missing.status_code == 403
     finally:
         _cleanup_elders(db, [elder["id"]])

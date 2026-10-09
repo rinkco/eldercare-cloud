@@ -151,20 +151,6 @@ def test_invalid_token_is_rejected(ws_context) -> None:
     assert excinfo.value.rcvd.code == 4401
 
 
-def test_elder_role_is_rejected(client: TestClient, seeded_users) -> None:
-    token = _login(
-        client, seeded_users.elder.username, seeded_users.elder_password
-    )
-
-    async def scenario():
-        async with websockets.connect(f"{WS_URL}?token={token}") as websocket:
-            await websocket.recv()
-
-    with pytest.raises(ConnectionClosed) as excinfo:
-        asyncio.run(asyncio.wait_for(scenario(), timeout=5))
-    assert excinfo.value.rcvd.code == 4403
-
-
 def test_telemetry_is_pushed(ws_context) -> None:
     uid = ws_context["uid"]
 

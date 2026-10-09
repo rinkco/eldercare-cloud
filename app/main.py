@@ -25,6 +25,7 @@ from app.routers.auth import router as auth_router
 from app.routers.devices import router as devices_router
 from app.routers.elders import router as elders_router
 from app.routers.events import router as events_router
+from app.routers.geofences import router as geofences_router
 from app.routers.telemetry import router as telemetry_router
 from app.routers.users import router as users_router
 from app.ws import hub, router as ws_router
@@ -65,6 +66,7 @@ app.include_router(devices_router)
 app.include_router(elders_router)
 app.include_router(telemetry_router)
 app.include_router(events_router)
+app.include_router(geofences_router)
 app.include_router(users_router)
 app.include_router(ws_router)
 

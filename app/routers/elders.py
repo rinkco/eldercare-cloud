@@ -95,7 +95,7 @@ def update_elder(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> Elder:
-    elder = get_elder_for_user(db, user, elder_id)
+    elder = get_elder_for_user(db, user, elder_id, for_update=True)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(elder, field, value)
 
@@ -124,7 +124,7 @@ def delete_elder(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> Response:
-    elder = get_elder_for_user(db, user, elder_id)
+    elder = get_elder_for_user(db, user, elder_id, for_update=True)
 
     bound_devices = list(
         db.execute(
@@ -197,7 +197,7 @@ def replace_contacts(
     db: Session = Depends(get_db),
 ) -> list[ElderContact]:
     """按提交的列表整体替换该老人的紧急联系人。"""
-    elder = get_elder_for_user(db, user, elder_id)
+    elder = get_elder_for_user(db, user, elder_id, for_update=True)
 
     if sum(1 for contact in payload if contact.is_primary) > 1:
         raise HTTPException(

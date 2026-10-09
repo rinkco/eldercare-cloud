@@ -1,6 +1,6 @@
 # SPEC 02 — 老人监护云平台前端 Web 管理台
 
-> **Status:** Approved
+> **Status:** 已实现（本地验收通过；云端部署演示待执行）
 > **Depends on:** SPEC 01（老人监护云平台总体规格，已实现并通过验收）
 > **Date:** 2026-10-08
 > **Objective:** 为老人监护云平台构建一套中文、美观、有设计感的 Next.js 前端 Web 管理台，覆盖登录与角色权限、老人/联系人、设备、电子围栏、遥测与健康趋势、事件/告警/通知、实时推送，以及同一账号下的长辈视图（elder 与 family 共用账号），并随同一份 Docker Compose 部署到公有云供答辩演示。
@@ -169,7 +169,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 1. 后端改动：围栏 GET/PUT、通知查询、角色模型收敛（移除 elder 角色并迁移存量账号）、迁移 0003（role 约束收紧 + `elder_access(user_id)` 索引）；同步清理后端 elder 分支与测试。
 2. 前端脚手架与设计 token：Next.js + TypeScript + Tailwind + shadcn/ui + Recharts；建立色彩/字体/间距/圆角 token、应用外壳与导航；compose 增加 frontend 服务与 nginx 同源反代；登录页壳可访问。
 3. 认证与权限框架：登录、sessionStorage 存取 JWT、路由守卫、角色菜单、401/403 处理、退出登录、Token 过期自动跳转；顶部账号菜单提供「管理视图 / 长辈视图」切换。
-4. 概览台：三角色差异化 KPI（老人数、在线设备、未处理告警、今日事件）、设备状态、最新告警列表、WebSocket 实时流与连接状态。
+4. 概览台：admin / family 差异化 KPI（老人数、在线设备、未处理告警、今日事件）、设备状态、最新告警列表、WebSocket 实时流与连接状态。
 5. 老人与联系人模块：列表、详情、新建、编辑、删除、紧急联系人读写（整体替换语义提示）、family 可见范围。
 6. 设备与围栏模块：设备注册/列表/绑定（admin）、重复绑定与占用 409 提示；围栏读取/整体替换、半径与开关校验。
 7. 健康数据模块：遥测查询（指标/时间过滤）、小时/天趋势图（心率、血氧、步数、活动）、活动分布、表格视图。
@@ -179,21 +179,31 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 
 ## 验收标准
 
-- [ ] `docker compose up -d --build` 后 `frontend` 容器 healthy，浏览器打开 `http://127.0.0.1:3000` 显示登录页；`migrate` 为 Exited (0)，backend/postgres/mosquitto 均 healthy。
-- [ ] admin 登录可见全部菜单；family 仅能看到并操作已关联老人；family 账号可在顶部菜单切换到长辈视图（只读展示，写操作入口隐藏）；不存在独立 elder 登录。
-- [ ] 数据库 `users.role` 约束已收敛为 admin / family；历史 elder 账号迁移为 family 后仍可登录，且在无 `elder_access` 关联时看不到任何老人数据。
-- [ ] 老人档案、紧急联系人、设备绑定可完成增删改查；重复绑定或绑定已占用设备时界面给出 409 中文原因。
-- [ ] 电子围栏可读取与整体替换，空数组能清空；半径越界等非法输入在表单层与接口层都被拒绝。
-- [ ] 告警中心可按状态/时间过滤，确认后状态变为 handled 且列表即时更新；通知记录能展示 channel、status、target、sent_at。
-- [ ] 健康趋势按小时和按天切换，心率/血氧/步数/活动与 `/health-trends` 返回一致，图表有加载、空态与错误态。
-- [ ] WebSocket 发布 fall 事件后，页面在 1 秒内出现新告警且无需刷新；断线后自动重连，重连期间列表 30 秒轮询仍可更新。
-- [ ] 设计验收：配色、字体层级、圆角、间距全部来自 token；无浏览器默认控件；卡片不嵌套；同屏数据色 ≤5 种。
-- [ ] 响应式验收：1440×900、1920×1080、390×844 三档无文字溢出、无元素遮挡、无横向滚动（表格除外，允许局部横滚）。
-- [ ] 无障碍验收：全流程可键盘操作、focus 可见、对比度达标、`prefers-reduced-motion` 生效。
-- [ ] Playwright 端到端用例全部通过（登录三角色、老人/联系人、设备绑定、趋势图、告警确认、通知展示、实时推送）。
-- [ ] 后端 `docker compose exec backend python -m pytest -q` 全部通过，包含本规格新增接口、角色迁移与权限边界用例。
-- [ ] README 从零冷启动步骤可直接跑通到前端演示（含端口 3000 与演示账号）。
-- [ ] 云服务器同一 compose 部署后，手机流量访问 3000 端口可完成登录、查看趋势、确认告警与实时推送演示。
+- [x] `docker compose up -d --build` 后 `frontend` 容器 healthy，浏览器打开 `http://127.0.0.1:3000` 显示登录页；`migrate` 为 Exited (0)，backend/postgres/mosquitto 均 healthy。
+- [x] admin 登录可见全部菜单；family 仅能看到并操作已关联老人；family 账号可在顶部菜单切换到长辈视图（只读展示，写操作入口隐藏）；不存在独立 elder 登录。
+- [x] 数据库 `users.role` 约束已收敛为 admin / family；历史 elder 账号迁移为 family 后仍可登录，且在无 `elder_access` 关联时看不到任何老人数据。
+- [x] 老人档案、紧急联系人、设备绑定可完成增删改查；重复绑定或绑定已占用设备时界面给出 409 中文原因。
+- [x] 电子围栏可读取与整体替换，空数组能清空；半径越界等非法输入在表单层与接口层都被拒绝。
+- [x] 告警中心可按状态/时间过滤，确认后状态变为 handled 且列表即时更新；通知记录能展示 channel、status、target、sent_at。
+- [x] 健康趋势按小时和按天切换，心率/血氧/步数/活动与 `/health-trends` 返回一致，图表有加载、空态与错误态。
+- [x] WebSocket 发布 fall 事件后，页面在 1 秒内出现新告警且无需刷新；断线后自动重连，重连期间列表 30 秒轮询仍可更新。
+- [x] 设计验收：配色、字体层级、圆角、间距全部来自 token；无浏览器默认控件；卡片不嵌套；同屏数据色 ≤5 种。
+- [x] 响应式验收：1440×900、1920×1080、390×844 三档无文字溢出、无元素遮挡、无横向滚动（表格除外，允许局部横滚）。
+- [x] 无障碍验收：全流程可键盘操作、focus 可见、对比度达标、`prefers-reduced-motion` 生效。
+- [x] Playwright 端到端用例全部通过（登录 admin / family、老人/联系人、设备绑定、趋势图、告警确认、通知展示、实时推送）。
+- [x] 后端 `docker compose exec backend python -m pytest -q` 全部通过，包含本规格新增接口、角色迁移与权限边界用例。
+- [x] README 从零冷启动步骤可直接跑通到前端演示（含端口 3000 与演示账号）。
+- [ ] 云服务器同一 compose 部署后，手机流量访问 3000 端口可完成登录、查看趋势、确认告警与实时推送演示（待云端演示环境执行）。
+
+## 验收记录
+
+- 日期：2026-10-09
+- 后端：`docker compose exec -T backend python -m pytest -q` → 92 passed
+- 前端：`npm run build` 静态导出 12 个路由成功；`npx tsc --noEmit` 无错误
+- 端到端：`npx playwright test` → 28 passed（desktop-chromium 1440×900 全量 15；desktop-wide 1920×1080 核心 7；mobile-chromium 390×844 核心 6）
+- 部署：`docker compose down -v` 后 `docker compose up -d --build` 冷启动，frontend/backend/postgres/mosquitto 均 healthy，migrate Exited (0)，`alembic current` = 0003_role_model_and_index (head)
+- 覆盖场景：登录与权限、老人/联系人 CRUD 与二次确认、设备注册与 409、围栏整体替换、健康趋势与表格视图、告警确认与通知记录、WebSocket 实时推送、长辈视图只读。
+- 云端部署与手机流量验收需在真实云服务器执行，未包含在本记录内。
 
 ## 已定决策与已排除方案
 

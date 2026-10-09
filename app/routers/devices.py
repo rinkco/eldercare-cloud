@@ -85,6 +85,16 @@ def bind_device(
     user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> Device:
+    # 统一锁顺序：先锁 Elder、再锁 Device，避免与「删除老人」（同样先
+    # Elder 后 Device）并发时形成循环等待。
+    elder = db.execute(
+        select(Elder).where(Elder.id == payload.elder_id).with_for_update()
+    ).scalar_one_or_none()
+    if elder is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="老人档案不存在"
+        )
+
     # 行锁保证并发绑定只有一个请求能成功
     device = db.execute(
         select(Device).where(Device.id == device_id).with_for_update()
@@ -96,10 +106,6 @@ def bind_device(
     if device.status == "disabled":
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT, detail="设备已停用，无法绑定"
-        )
-    if db.get(Elder, payload.elder_id) is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="老人档案不存在"
         )
     if device.elder_id == payload.elder_id:
         raise HTTPException(

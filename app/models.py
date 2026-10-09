@@ -36,7 +36,7 @@ class User(Base):
 
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('admin', 'family', 'elder')", name="ck_users_role"),
+        CheckConstraint("role IN ('admin', 'family')", name="ck_users_role"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
@@ -74,6 +74,7 @@ class ElderAccess(Base):
     __tablename__ = "elder_access"
     __table_args__ = (
         UniqueConstraint("elder_id", "user_id", name="uq_elder_access_elder_user"),
+        Index("ix_elder_access_user_id", "user_id"),
     )
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
