@@ -16,17 +16,14 @@ from app.security import hash_password
 
 ADMIN_PASSWORD = "admin-pass-123"
 FAMILY_PASSWORD = "family-pass-123"
-ELDER_PASSWORD = "elder-pass-123"
 
 
 @dataclass
 class TestUsers:
     admin: User
     family: User
-    elder: User
     admin_password: str
     family_password: str
-    elder_password: str
 
 
 @pytest.fixture
@@ -76,20 +73,12 @@ def seeded_users(db) -> TestUsers:
         role="family",
         display_name="测试家属",
     )
-    elder = User(
-        username=f"t-elder-{suffix}",
-        password_hash=hash_password(ELDER_PASSWORD),
-        role="elder",
-        display_name="测试老人",
-    )
-    session.add_all([admin, family, elder])
+    session.add_all([admin, family])
     session.commit()
-    created_ids.extend([admin.id, family.id, elder.id])
+    created_ids.extend([admin.id, family.id])
     return TestUsers(
         admin=admin,
         family=family,
-        elder=elder,
         admin_password=ADMIN_PASSWORD,
         family_password=FAMILY_PASSWORD,
-        elder_password=ELDER_PASSWORD,
     )

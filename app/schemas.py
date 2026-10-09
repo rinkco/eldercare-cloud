@@ -1,7 +1,7 @@
 """接口请求/响应模型。"""
 
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -111,6 +111,37 @@ class DeviceOut(BaseModel):
     battery_percent: int | None = None
     last_seen_at: datetime | None = None
     bound_at: datetime | None = None
+
+
+class GeofenceIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=64)
+    center_lat: float = Field(ge=-90, le=90)
+    center_lon: float = Field(ge=-180, le=180)
+    radius_m: int = Field(ge=50, le=5000)
+    # 严格布尔：JSON 中只接受 true/false，拒绝 0/1/"false"/null 等宽松转换
+    enabled: Annotated[bool, Field(strict=True)] = True
+
+
+class GeofenceOut(GeofenceIn):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+
+
+class NotificationOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    alert_id: int
+    contact_id: int | None = None
+    channel: str
+    target: str | None = None
+    content: str
+    status: str
+    sent_at: datetime | None = None
+    error: str | None = None
 
 
 class TelemetryOut(BaseModel):

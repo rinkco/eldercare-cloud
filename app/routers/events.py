@@ -10,8 +10,8 @@ from app.access import get_elder_for_user
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Alert, ElderAccess, Event, User
-from app.schemas import AlertOut, EventOut
+from app.models import Alert, ElderAccess, Event, Notification, User
+from app.schemas import AlertOut, EventOut, NotificationOut
 from app.timeutils import ensure_utc
 
 router = APIRouter(prefix="/api/v1", tags=["事件与告警"])
@@ -134,3 +134,28 @@ def acknowledge_alert(
 
     event = db.get(Event, alert.event_id)
     return _alert_out(alert, event)
+
+
+@router.get(
+    "/alerts/{alert_id}/notifications",
+    response_model=list[NotificationOut],
+    summary="告警通知记录（admin / family）",
+)
+def list_alert_notifications(
+    alert_id: int,
+    user: User = Depends(require_roles("admin", "family")),
+    db: Session = Depends(get_db),
+) -> list[Notification]:
+    alert = db.get(Alert, alert_id)
+    if alert is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="告警不存在"
+        )
+    get_elder_for_user(db, user, alert.elder_id)
+    return list(
+        db.execute(
+            select(Notification)
+            .where(Notification.alert_id == alert_id)
+            .order_by(Notification.id)
+        ).scalars()
+    )

@@ -7,12 +7,22 @@ from sqlalchemy.orm import Session
 from app.models import Elder, ElderAccess, User
 
 
-def get_elder_for_user(db: Session, user: User, elder_id: int) -> Elder:
-    """按角色返回可见老人；不存在 404，越权 403。"""
+def get_elder_for_user(
+    db: Session, user: User, elder_id: int, *, for_update: bool = False
+) -> Elder:
+    """按角色返回可见老人；不存在 404，越权 403。
+
+    for_update=True 时对老人行加锁，供"整体替换"类写操作串行化使用。
+    """
     if user.role not in ("admin", "family"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="权限不足")
 
-    elder = db.get(Elder, elder_id)
+    if for_update:
+        elder = db.execute(
+            select(Elder).where(Elder.id == elder_id).with_for_update()
+        ).scalar_one_or_none()
+    else:
+        elder = db.get(Elder, elder_id)
     if elder is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="老人档案不存在"
