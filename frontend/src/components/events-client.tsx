@@ -1,6 +1,6 @@
 "use client";
 
-import { RefreshCw, RotateCcw } from "lucide-react";
+import { Copy, Eye, RefreshCw, RotateCcw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { ElderSelect, useElderList } from "@/components/elder-select";
@@ -11,6 +11,7 @@ import {
 } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
@@ -24,11 +25,13 @@ import {
   Table,
   TableWrapper,
 } from "@/components/ui/table";
+import { useToast } from "@/components/ui/toast";
 import { api, buildQuery } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import {
   EVENT_TYPE_LABELS,
   formatDateTime,
+  formatFullDateTime,
   formatRelative,
 } from "@/lib/format";
 import type { EventRecord } from "@/lib/types";
@@ -95,9 +98,11 @@ function EventStatusBadge({ status }: { status: string }) {
 
 export function EventsClient() {
   const { session } = useAuth();
+  const { toast } = useToast();
   const { elders } = useElderList();
 
   const [events, setEvents] = useState<EventRecord[]>([]);
+  const [detailEvent, setDetailEvent] = useState<EventRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -200,6 +205,25 @@ export function EventsClient() {
     setStart("");
     setEnd("");
   }, []);
+
+  const copyPayload = useCallback(async () => {
+    if (!detailEvent) return;
+    const text = JSON.stringify(detailEvent.payload_json ?? {}, null, 2);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      // HTTP 等非安全上下文没有剪贴板 API，回退到临时 textarea
+      const area = document.createElement("textarea");
+      area.value = text;
+      area.style.position = "fixed";
+      area.style.opacity = "0";
+      document.body.appendChild(area);
+      area.select();
+      document.execCommand("copy");
+      area.remove();
+    }
+    toast({ title: "已复制完整 Payload", variant: "success" });
+  }, [detailEvent, toast]);
 
   return (
     <div>
@@ -329,6 +353,7 @@ export function EventsClient() {
                 <TH>状态</TH>
                 <TH>置信度</TH>
                 <TH>Payload 摘要</TH>
+                <TH className="text-right">操作</TH>
               </TR>
             </THead>
             <TBody>
@@ -370,6 +395,18 @@ export function EventsClient() {
                         {summary}
                       </span>
                     </TD>
+                    <TD>
+                      <div className="flex justify-end">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setDetailEvent(event)}
+                        >
+                          <Eye />
+                          详情
+                        </Button>
+                      </div>
+                    </TD>
                   </TR>
                 );
               })}
@@ -377,6 +414,94 @@ export function EventsClient() {
           </Table>
         </TableWrapper>
       )}
+
+      <Dialog
+        open={detailEvent !== null}
+        onOpenChange={(open) => {
+          if (!open) setDetailEvent(null);
+        }}
+      >
+        <DialogContent
+          title="事件详情"
+          description={
+            detailEvent ? `事件 #${detailEvent.id} · 原始上报数据` : undefined
+          }
+          className="w-[min(94vw,760px)]"
+        >
+          {detailEvent ? (
+            <div className="space-y-4">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3 sm:grid-cols-3">
+                <div>
+                  <dt className="text-[12px] text-ink-muted">类型</dt>
+                  <dd className="mt-1">
+                    <EventTypeBadge type={detailEvent.type} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[12px] text-ink-muted">等级</dt>
+                  <dd className="mt-1">
+                    <SeverityBadge severity={detailEvent.severity} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[12px] text-ink-muted">状态</dt>
+                  <dd className="mt-1">
+                    <EventStatusBadge status={detailEvent.status} />
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[12px] text-ink-muted">置信度</dt>
+                  <dd className="mt-1 tabular-nums text-[13px] text-ink">
+                    {detailEvent.confidence === null ||
+                    detailEvent.confidence === undefined
+                      ? "—"
+                      : detailEvent.confidence.toFixed(2)}
+                  </dd>
+                </div>
+                <div className="col-span-2">
+                  <dt className="text-[12px] text-ink-muted">发生时间</dt>
+                  <dd className="mt-1 text-[13px] text-ink">
+                    {formatFullDateTime(detailEvent.occurred_at)}
+                    <span className="ml-2 text-[12px] text-ink-muted">
+                      {detailEvent.occurred_at}
+                    </span>
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[12px] text-ink-muted">老人</dt>
+                  <dd className="mt-1 text-[13px] text-ink">
+                    {elderNames.get(detailEvent.elder_id) ??
+                      `#${detailEvent.elder_id}`}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="text-[12px] text-ink-muted">设备 ID</dt>
+                  <dd className="mt-1 tabular-nums text-[13px] text-ink">
+                    #{detailEvent.device_id}
+                  </dd>
+                </div>
+              </dl>
+
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-[12px] text-ink-muted">完整 Payload</p>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void copyPayload()}
+                  >
+                    <Copy />
+                    复制
+                  </Button>
+                </div>
+                <pre className="mt-2 max-h-72 overflow-auto rounded-[6px] border border-line bg-raised px-3 py-2.5 text-[12px] leading-5 text-ink">
+                  {JSON.stringify(detailEvent.payload_json ?? {}, null, 2)}
+                </pre>
+              </div>
+            </div>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -2,7 +2,6 @@
 
 import {
   Activity,
-  ArrowLeft,
   CalendarDays,
   ContactRound,
   HeartPulse,
@@ -11,7 +10,6 @@ import {
   ShieldAlert,
   UserRound,
 } from "lucide-react";
-import Link from "next/link";
 import {
   useCallback,
   useEffect,
@@ -28,7 +26,6 @@ import {
   SeverityBadge,
 } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
-import { buttonVariants } from "@/components/ui/button";
 import { PageHeader } from "@/components/ui/page-header";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState } from "@/components/ui/states";
@@ -606,15 +603,6 @@ function ElderViewContent({
     <div>
       <PageHeader
         title="长辈视图"
-        actions={
-          <Link
-            href="/"
-            className={buttonVariants({ variant: "secondary", size: "sm" })}
-          >
-            <ArrowLeft />
-            返回管理视图
-          </Link>
-        }
       />
 
       <FilterBar>

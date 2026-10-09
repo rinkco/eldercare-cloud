@@ -17,7 +17,7 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { ConnectionIndicator } from "@/components/connection-indicator";
@@ -49,6 +49,12 @@ const NAV_SECTIONS: { title: string; items: NavItem[] }[] = [
         href: "/",
         label: "概览台",
         icon: <LayoutDashboard className="size-4" />,
+        roles: ["admin", "family"],
+      },
+      {
+        href: "/elder-view",
+        label: "长辈视图",
+        icon: <Eye className="size-4" />,
         roles: ["admin", "family"],
       },
     ],
@@ -176,7 +182,6 @@ function BrandMark() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { session, logout } = useAuth();
   const pathname = usePathname();
-  const router = useRouter();
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   useEffect(() => {
@@ -269,13 +274,6 @@ export function AppShell({ children }: { children: ReactNode }) {
                 <DropdownMenuLabel>
                   {session.username} · {roleLabel}
                 </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={() => router.push("/elder-view/")}
-                >
-                  <Eye className="size-4" />
-                  长辈视图
-                </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem danger onSelect={logout}>
                   <LogOut className="size-4" />
