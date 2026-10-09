@@ -1,11 +1,14 @@
 "use client";
 
-import { RefreshCw, Users } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { Pencil, RefreshCw, Users } from "lucide-react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { FieldError, Input, Label } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
   TBody,
@@ -16,7 +19,8 @@ import {
   Table,
   TableWrapper,
 } from "@/components/ui/table";
-import { api } from "@/lib/api";
+import { useToast } from "@/components/ui/toast";
+import { api, ApiError } from "@/lib/api";
 import type { UserOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -24,6 +28,11 @@ const ROLE_LABELS: Record<string, string> = {
   admin: "管理员",
   family: "家属",
 };
+
+const ROLE_OPTIONS = [
+  { value: "admin", label: "管理员" },
+  { value: "family", label: "家属" },
+];
 
 function RoleBadge({ role }: { role: string }) {
   return (
@@ -34,10 +43,19 @@ function RoleBadge({ role }: { role: string }) {
 }
 
 export function UsersClient() {
+  const { toast } = useToast();
   const [users, setUsers] = useState<UserOut[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [editUser, setEditUser] = useState<UserOut | null>(null);
+  const [editDisplayName, setEditDisplayName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [editRole, setEditRole] = useState("family");
+  const [editPassword, setEditPassword] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +73,57 @@ export function UsersClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const openEditDialog = useCallback((user: UserOut) => {
+    setEditUser(user);
+    setEditDisplayName(user.display_name ?? "");
+    setEditPhone(user.phone ?? "");
+    setEditRole(user.role);
+    setEditPassword("");
+    setEditError(null);
+  }, []);
+
+  const saveUser = useCallback(
+    async (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      if (!editUser) return;
+      if (editPassword && editPassword.length < 6) {
+        setEditError("重置密码至少 6 位");
+        return;
+      }
+
+      setSaving(true);
+      setEditError(null);
+      try {
+        const body: Record<string, unknown> = {
+          display_name: editDisplayName.trim() || null,
+          phone: editPhone.trim() || null,
+          role: editRole,
+        };
+        if (editPassword) body.password = editPassword;
+        const updated = await api.patch<UserOut>(
+          `/api/v1/users/${editUser.id}`,
+          body
+        );
+        setUsers((current) =>
+          current.map((item) => (item.id === updated.id ? updated : item))
+        );
+        toast({
+          title: "已保存",
+          description: `账号 ${updated.username} 已更新`,
+          variant: "success",
+        });
+        setEditUser(null);
+      } catch (caught) {
+        setEditError(
+          caught instanceof ApiError ? caught.message : "保存失败，请稍后重试"
+        );
+      } finally {
+        setSaving(false);
+      }
+    },
+    [editUser, editDisplayName, editPhone, editRole, editPassword, toast]
+  );
 
   return (
     <div>
@@ -101,6 +170,7 @@ export function UsersClient() {
                 <TH>角色</TH>
                 <TH>显示名</TH>
                 <TH>手机号</TH>
+                <TH className="text-right">操作</TH>
               </TR>
             </THead>
             <TBody>
@@ -115,6 +185,18 @@ export function UsersClient() {
                   <TD className="tabular-nums text-ink-muted">
                     {user.phone || "—"}
                   </TD>
+                  <TD>
+                    <div className="flex justify-end">
+                      <Button
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => openEditDialog(user)}
+                      >
+                        <Pencil />
+                        编辑
+                      </Button>
+                    </div>
+                  </TD>
                 </TR>
               ))}
             </TBody>
@@ -128,6 +210,88 @@ export function UsersClient() {
           共 {users.length} 个账号
         </p>
       ) : null}
+
+      <Dialog
+        open={editUser !== null}
+        onOpenChange={(open) => {
+          if (!open) setEditUser(null);
+        }}
+      >
+        <DialogContent
+          title="编辑用户"
+          description="账号名不可修改；重置密码留空表示保持不变。"
+        >
+          <form onSubmit={saveUser} className="space-y-4">
+            <FieldError>{editError}</FieldError>
+
+            <div>
+              <Label htmlFor="edit-username">账号</Label>
+              <Input
+                id="edit-username"
+                value={editUser?.username ?? ""}
+                disabled
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-display-name">显示名</Label>
+              <Input
+                id="edit-display-name"
+                value={editDisplayName}
+                maxLength={64}
+                placeholder="例如：张奶奶家属"
+                onChange={(event) => setEditDisplayName(event.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-phone">手机号</Label>
+              <Input
+                id="edit-phone"
+                value={editPhone}
+                maxLength={32}
+                placeholder="例如：13800000000"
+                onChange={(event) => setEditPhone(event.target.value)}
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-role">角色</Label>
+              <Select
+                value={editRole}
+                onValueChange={setEditRole}
+                options={ROLE_OPTIONS}
+                aria-label="角色"
+              />
+            </div>
+
+            <div>
+              <Label htmlFor="edit-password">重置密码</Label>
+              <Input
+                id="edit-password"
+                type="password"
+                value={editPassword}
+                autoComplete="new-password"
+                placeholder="留空则不修改，至少 6 位"
+                onChange={(event) => setEditPassword(event.target.value)}
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-1">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => setEditUser(null)}
+              >
+                取消
+              </Button>
+              <Button type="submit" variant="primary" disabled={saving}>
+                {saving ? "保存中…" : "保存"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

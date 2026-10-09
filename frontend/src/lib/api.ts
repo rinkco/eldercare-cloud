@@ -31,7 +31,7 @@ export function buildQuery(params: Record<string, QueryValue>): string {
 }
 
 interface RequestOptions {
-  method?: "GET" | "POST" | "PUT" | "DELETE";
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
   body?: unknown;
   auth?: boolean;
   signal?: AbortSignal;
@@ -110,6 +110,8 @@ export const api = {
     request<T>(path, { method: "POST", body }),
   put: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PUT", body }),
+  patch: <T>(path: string, body?: unknown) =>
+    request<T>(path, { method: "PATCH", body }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
   login: (username: string, password: string) =>
     request<import("./types").TokenResponse>("/api/v1/auth/login", {

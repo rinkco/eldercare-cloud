@@ -268,6 +268,7 @@ WWW-Authenticate: Bearer
 | GET | `/healthz` | 公开 | 无 | 200：`{"status":"ok"}` | 无业务错误 |
 | GET | `/readyz` | 公开 | 无 | 200：数据库、迁移、MQTT 均 `ok` | 503：任一依赖未就绪 |
 | POST | `/api/v1/auth/login` | 公开 | `LoginRequest` | 200：`TokenResponse` | 401、422 |
+| POST | `/api/v1/auth/register` | 公开 | `RegisterRequest` | 201：`UserOut` | 409（账号已存在）、422 |
 
 `/readyz` 健康响应：
 
@@ -612,14 +613,16 @@ curl.exe -sS "http://127.0.0.1:8080/api/v1/elders/1/telemetry?metric=heart_rate&
 - `radius_m`：50 到 5000。
 - `enabled`：严格布尔，只能是 `true` 或 `false`；`1`、`0`、`"false"`、`null` 都会返回 422。
 
-### 5.8 用户列表
+### 5.8 用户列表与编辑
 
-`GET /api/v1/users`
+`GET /api/v1/users`、`PATCH /api/v1/users/{user_id}`
 
-- 角色：仅 admin。
-- family 返回 403。
-- 返回 `UserOut[]`，按 `id` 升序。
-- 这是只读的临时验收端点，没有新建、删除、停用、改密接口。
+- 角色：仅 admin；family 返回 403。
+- GET 返回 `UserOut[]`，按 `id` 升序。
+- PATCH 可编辑 `display_name`、`phone`、`role`（admin / family）与
+  `password`（重置密码）：省略字段表示不修改，`display_name` / `phone`
+  传 `null` 表示清空；`username` 不可修改。
+- 降级管理员时系统需至少保留一个管理员，否则返回 400；用户不存在返回 404。
 
 ```json
 [

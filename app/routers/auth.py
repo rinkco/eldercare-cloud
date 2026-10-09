@@ -1,14 +1,15 @@
-"""认证接口：登录并签发 JWT。"""
+"""认证接口：注册、登录并签发 JWT。"""
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.audit import write_audit
 from app.config import settings
 from app.db import get_db
 from app.models import User
-from app.schemas import LoginRequest, TokenResponse
+from app.schemas import LoginRequest, RegisterRequest, TokenResponse, UserOut
 from app.security import create_access_token, hash_password, verify_password
 
 router = APIRouter(prefix="/api/v1/auth", tags=["认证"])
@@ -67,3 +68,43 @@ def login(
         expires_in=settings.jwt_expire_minutes * 60,
         role=user.role,
     )
+
+
+@router.post(
+    "/register",
+    response_model=UserOut,
+    status_code=status.HTTP_201_CREATED,
+    summary="注册家属账号（公开）",
+)
+def register(
+    payload: RegisterRequest, request: Request, db: Session = Depends(get_db)
+) -> User:
+    """开放注册：固定创建 family 角色账号，用户名重复返回 409。"""
+    user = User(
+        username=payload.username,
+        password_hash=hash_password(payload.password),
+        role="family",
+        display_name=(payload.display_name or "").strip() or None,
+        phone=(payload.phone or "").strip() or None,
+    )
+    db.add(user)
+    try:
+        db.flush()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="账号已存在"
+        ) from exc
+
+    write_audit(
+        db,
+        user_id=user.id,
+        action="register",
+        target_type="user",
+        target_id=user.id,
+        ip=request.client.host if request.client else None,
+        detail={"username": user.username},
+    )
+    db.commit()
+    db.refresh(user)
+    return user

@@ -11,6 +11,26 @@ class LoginRequest(BaseModel):
     password: str = Field(min_length=1, max_length=128)
 
 
+class RegisterRequest(BaseModel):
+    """公开注册请求：仅创建 family 角色账号。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    username: str = Field(
+        min_length=3, max_length=32, pattern=r"^[A-Za-z0-9_-]+$"
+    )
+    password: str = Field(min_length=6, max_length=64)
+    display_name: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode="after")
+    def _reject_password_over_bcrypt_limit(self) -> "RegisterRequest":
+        """bcrypt 只处理前 72 字节，超长密码直接拒绝。"""
+        if len(self.password.encode("utf-8")) > 72:
+            raise ValueError("密码超过 bcrypt 的 72 字节上限")
+        return self
+
+
 class TokenResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
@@ -26,6 +46,25 @@ class UserOut(BaseModel):
     role: str
     display_name: str | None = None
     phone: str | None = None
+
+
+class UserUpdate(BaseModel):
+    """管理员编辑用户：省略字段表示不修改，显式 null 表示清空。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    display_name: str | None = Field(default=None, max_length=64)
+    phone: str | None = Field(default=None, max_length=32)
+    role: Literal["admin", "family"] | None = None
+    password: str | None = Field(default=None, min_length=6, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_update(self) -> "UserUpdate":
+        if "role" in self.model_fields_set and self.role is None:
+            raise ValueError("role 不能为 null")
+        if self.password is not None and len(self.password.encode("utf-8")) > 72:
+            raise ValueError("密码超过 bcrypt 的 72 字节上限")
+        return self
 
 
 class ElderCreate(BaseModel):

@@ -1,18 +1,19 @@
-"""账号管理接口（临时验收端点）。
+"""账号管理接口：管理员查看与编辑账号。
 
-GET /api/v1/users 不在 SPEC 01 冻结的 REST 表中，是为了完成
-「family 访问管理接口返回 403」这一验收项而提供的最小管理员端点，
-后续账号管理正式化时应并入规格并考虑字段裁剪与分页。
+公开注册见 ``POST /api/v1/auth/register``；本模块提供管理台的用户列表
+查询与编辑（显示名 / 手机号 / 角色 / 重置密码），账号名不可修改。
 """
 
-from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, HTTPException, Request, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.audit import write_audit
 from app.db import get_db
 from app.deps import require_roles
 from app.models import User
-from app.schemas import UserOut
+from app.schemas import UserOut, UserUpdate
+from app.security import hash_password
 
 router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
 
@@ -20,10 +21,77 @@ router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
 @router.get(
     "",
     response_model=list[UserOut],
-    summary="用户列表（仅 admin，临时验收端点）",
+    summary="用户列表（仅 admin）",
 )
 def list_users(
     _: User = Depends(require_roles("admin")), db: Session = Depends(get_db)
 ) -> list[User]:
     """管理员查看全部账号。"""
     return list(db.execute(select(User).order_by(User.id)).scalars())
+
+
+@router.patch(
+    "/{user_id}",
+    response_model=UserOut,
+    summary="编辑用户（仅 admin）",
+)
+def update_user(
+    user_id: int,
+    payload: UserUpdate,
+    request: Request,
+    current: User = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> User:
+    """管理员编辑账号：显示名、手机号、角色与重置密码。
+
+    账号名（username）不可修改；降级管理员时保证系统保留至少一个管理员。
+    """
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在"
+        )
+
+    changes: dict[str, object] = {}
+    fields = payload.model_fields_set
+
+    if "display_name" in fields:
+        user.display_name = (payload.display_name or "").strip() or None
+        changes["display_name"] = user.display_name
+    if "phone" in fields:
+        user.phone = (payload.phone or "").strip() or None
+        changes["phone"] = user.phone
+
+    if payload.role is not None and payload.role != user.role:
+        if user.role == "admin" and payload.role != "admin":
+            admin_count = db.execute(
+                select(func.count())
+                .select_from(User)
+                .where(User.role == "admin")
+            ).scalar_one()
+            if admin_count <= 1:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="系统需要至少保留一个管理员",
+                )
+        user.role = payload.role
+        changes["role"] = payload.role
+
+    if payload.password is not None:
+        user.password_hash = hash_password(payload.password)
+        changes["password"] = "reset"
+
+    if changes:
+        write_audit(
+            db,
+            user_id=current.id,
+            action="user_update",
+            target_type="user",
+            target_id=user.id,
+            ip=request.client.host if request.client else None,
+            detail=changes,
+        )
+        db.commit()
+        db.refresh(user)
+
+    return user

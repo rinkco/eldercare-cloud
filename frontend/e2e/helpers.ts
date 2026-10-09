@@ -3,8 +3,15 @@ import path from "node:path";
 
 import type { Page } from "@playwright/test";
 
-export const ADMIN = { username: "admin", password: "admin123456" };
-export const FAMILY = { username: "family", password: "family123456" };
+// 默认与本地演示口令一致；对自定义口令的部署（如云端）可用环境变量覆盖
+export const ADMIN = {
+  username: process.env.E2E_ADMIN_USERNAME ?? "admin",
+  password: process.env.E2E_ADMIN_PASSWORD ?? "admin123456",
+};
+export const FAMILY = {
+  username: process.env.E2E_FAMILY_USERNAME ?? "family",
+  password: process.env.E2E_FAMILY_PASSWORD ?? "family123456",
+};
 
 export async function login(
   page: Page,
