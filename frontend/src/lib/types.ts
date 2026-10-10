@@ -22,6 +22,15 @@ export interface UserOut {
   phone: string | null;
 }
 
+export interface AccessMember {
+  id: number;
+  user_id: number;
+  username: string;
+  display_name: string | null;
+  role: "owner" | "member";
+  relation: string | null;
+}
+
 export interface Elder {
   id: number;
   name: string;

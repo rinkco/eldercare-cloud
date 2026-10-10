@@ -277,3 +277,55 @@ def test_deleting_elder_clears_device_binding(
         assert stored.bound_at is None
     finally:
         _cleanup(db, [device["id"]], [elder["id"]])
+
+
+def test_unbind_device_flow(client: TestClient, db, seeded_users) -> None:
+    token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    elder_one = _create_elder(client, token, "解绑测试老人甲")
+    elder_two = _create_elder(client, token, "解绑测试老人乙")
+    device = _create_device(client, token, f"esp32-{uuid.uuid4().hex[:10]}")
+    url = f"/api/v1/devices/{device['id']}/unbind"
+
+    try:
+        bound = client.post(
+            f"/api/v1/devices/{device['id']}/bind",
+            headers=_headers(token),
+            json={"elder_id": elder_one["id"]},
+        )
+        assert bound.status_code == 200
+
+        assert client.post(url, headers=_headers(family_token)).status_code == 403
+
+        unbound = client.post(url, headers=_headers(token))
+        assert unbound.status_code == 200
+        assert unbound.json()["elder_id"] is None
+        assert unbound.json()["bound_at"] is None
+
+        assert client.post(url, headers=_headers(token)).status_code == 409
+
+        rebound = client.post(
+            f"/api/v1/devices/{device['id']}/bind",
+            headers=_headers(token),
+            json={"elder_id": elder_two["id"]},
+        )
+        assert rebound.status_code == 200
+        assert rebound.json()["elder_id"] == elder_two["id"]
+
+        session, _ = db
+        session.expire_all()
+        actions = set(
+            session.execute(
+                select(AuditLog.action).where(
+                    AuditLog.target_type == "device",
+                    AuditLog.target_id == device["id"],
+                )
+            ).scalars()
+        )
+        assert "unbind_device" in actions
+    finally:
+        _cleanup(db, [device["id"]], [elder_one["id"], elder_two["id"]])

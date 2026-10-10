@@ -1,6 +1,6 @@
 "use client";
 
-import { Cpu, Link2, Plus, RefreshCw } from "lucide-react";
+import { Cpu, Link2, Plus, RefreshCw, Unlink } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -13,6 +13,7 @@ import { ElderSelect, useElderList } from "@/components/elder-select";
 import { RoleGuard } from "@/components/role-guard";
 import { DeviceStatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input, Label } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
@@ -83,6 +84,9 @@ function DevicesContent() {
   const [bindElderId, setBindElderId] = useState("");
   const [bindError, setBindError] = useState<string | null>(null);
   const [binding, setBinding] = useState(false);
+  const [unbindDevice, setUnbindDevice] = useState<Device | null>(null);
+  const [unbindError, setUnbindError] = useState<string | null>(null);
+  const [unbinding, setUnbinding] = useState(false);
 
   const load = useCallback(
     async (showLoading = true) => {
@@ -207,6 +211,35 @@ function DevicesContent() {
     }
   }, [bindDevice, bindElderId, elderNames, toast, load]);
 
+  const unbindDeviceFromElder = useCallback(async () => {
+    if (!unbindDevice) return;
+    setUnbinding(true);
+    setUnbindError(null);
+    try {
+      const updated = await api.post<Device>(
+        `/api/v1/devices/${unbindDevice.id}/unbind`
+      );
+      setDevices((current) =>
+        current.map((device) =>
+          device.id === updated.id ? updated : device
+        )
+      );
+      setUnbindDevice(null);
+      toast({
+        title: "设备已解绑",
+        description: `${updated.device_uid} 已回到未绑定状态，历史数据保留。`,
+        variant: "success",
+      });
+      void load(false);
+    } catch (caught) {
+      setUnbindError(
+        caught instanceof Error ? caught.message : "解绑设备失败。"
+      );
+    } finally {
+      setUnbinding(false);
+    }
+  }, [unbindDevice, toast, load]);
+
   return (
     <div>
       <PageHeader
@@ -324,19 +357,31 @@ function DevicesContent() {
                     </TD>
                     <TD>
                       <div className="flex justify-end">
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          disabled={!canBind}
-                          onClick={() => openBindDialog(device)}
-                        >
-                          <Link2 />
-                          {device.elder_id !== null
-                            ? "已绑定"
-                            : device.status === "disabled"
+                        {device.elder_id !== null ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              setUnbindDevice(device);
+                              setUnbindError(null);
+                            }}
+                          >
+                            <Unlink />
+                            解绑
+                          </Button>
+                        ) : (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            disabled={!canBind}
+                            onClick={() => openBindDialog(device)}
+                          >
+                            <Link2 />
+                            {device.status === "disabled"
                               ? "已停用"
                               : "绑定"}
-                        </Button>
+                          </Button>
+                        )}
                       </div>
                     </TD>
                   </TR>
@@ -500,6 +545,35 @@ function DevicesContent() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={unbindDevice !== null}
+        onOpenChange={(open) => {
+          if (!open && !unbinding) {
+            setUnbindDevice(null);
+            setUnbindError(null);
+          }
+        }}
+        title="解绑设备"
+        description={
+          unbindDevice
+            ? `把 ${unbindDevice.device_uid} 从当前老人解绑？解绑后设备回到未绑定状态，历史遥测与事件保留。`
+            : undefined
+        }
+        confirmText={unbinding ? "正在解绑…" : "解绑"}
+        danger
+        busy={unbinding}
+        onConfirm={() => void unbindDeviceFromElder()}
+      >
+        {unbindError ? (
+          <p
+            className="rounded-[6px] border border-critical/35 bg-critical/10 px-3 py-2 text-[13px] text-critical"
+            role="alert"
+          >
+            {unbindError}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }

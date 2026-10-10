@@ -1,9 +1,14 @@
 """SPEC 01 步骤 4：老人档案、访问范围与紧急联系人集成测试。"""
 
+import uuid
+
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
-from app.models import AuditLog, Elder, ElderAccess
+from app.models import AuditLog, Device, Elder, ElderAccess, User
+from app.security import hash_password
+
+EXTRA_FAMILY_PASSWORD = "extra-family-pass-123"
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -41,6 +46,26 @@ def _cleanup_elders(db, elder_ids: list[int]) -> None:
         )
     )
     session.execute(delete(Elder).where(Elder.id.in_(elder_ids)))
+    session.commit()
+
+
+def _create_family_user(db) -> User:
+    session, _ = db
+    user = User(
+        username=f"t-extra-{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password(EXTRA_FAMILY_PASSWORD),
+        role="family",
+        display_name="额外家属",
+    )
+    session.add(user)
+    session.commit()
+    return user
+
+
+def _delete_user(db, user_id: int) -> None:
+    session, _ = db
+    session.execute(delete(AuditLog).where(AuditLog.user_id == user_id))
+    session.execute(delete(User).where(User.id == user_id))
     session.commit()
 
 
@@ -259,3 +284,301 @@ def test_contacts_reject_multiple_primary(
         assert response.status_code == 422
     finally:
         _cleanup_elders(db, [elder["id"]])
+
+
+def test_access_grant_and_member_permissions(
+    client: TestClient, db, seeded_users
+) -> None:
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    elder = _create_elder(client, admin_token, "测试成员权限老人")
+    elder_id = elder["id"]
+    family_id = seeded_users.family.id
+    session, _ = db
+
+    try:
+        empty = client.get(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+        )
+        assert empty.status_code == 200
+        assert empty.json() == []
+
+        granted = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+            json=[
+                {
+                    "user_id": family_id,
+                    "role": "member",
+                    "relation": "daughter",
+                }
+            ],
+        )
+        assert granted.status_code == 200
+        body = granted.json()
+        assert len(body) == 1
+        assert body[0]["user_id"] == family_id
+        assert body[0]["username"] == seeded_users.family.username
+        assert body[0]["role"] == "member"
+
+        # member：可见，但不能改档案、不能删老人、不能查看/管理成员
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}", headers=_headers(family_token)
+            ).status_code
+            == 200
+        )
+        assert (
+            client.put(
+                f"/api/v1/elders/{elder_id}",
+                headers=_headers(family_token),
+                json={"address": "成员不应改"},
+            ).status_code
+            == 403
+        )
+        assert (
+            client.delete(
+                f"/api/v1/elders/{elder_id}", headers=_headers(family_token)
+            ).status_code
+            == 403
+        )
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(family_token),
+            ).status_code
+            == 403
+        )
+        assert (
+            client.put(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(family_token),
+                json=[{"user_id": family_id, "role": "owner"}],
+            ).status_code
+            == 403
+        )
+
+        # 校验：至少一位 owner、成员不重复、只能关联 family 账号
+        assert (
+            client.put(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(admin_token),
+                json=[],
+            ).status_code
+            == 422
+        )
+        assert (
+            client.put(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(admin_token),
+                json=[
+                    {"user_id": family_id, "role": "owner"},
+                    {"user_id": family_id, "role": "member"},
+                ],
+            ).status_code
+            == 422
+        )
+        assert (
+            client.put(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(admin_token),
+                json=[{"user_id": seeded_users.admin.id, "role": "owner"}],
+            ).status_code
+            == 422
+        )
+
+        # 升为 owner 后可查看成员并编辑档案
+        promoted = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+            json=[
+                {
+                    "user_id": family_id,
+                    "role": "owner",
+                    "relation": "daughter",
+                }
+            ],
+        )
+        assert promoted.status_code == 200
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}/access",
+                headers=_headers(family_token),
+            ).status_code
+            == 200
+        )
+        updated = client.put(
+            f"/api/v1/elders/{elder_id}",
+            headers=_headers(family_token),
+            json={"address": "主照护者修改地址"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["address"] == "主照护者修改地址"
+
+        session.expire_all()
+        actions = set(
+            session.execute(
+                select(AuditLog.action).where(AuditLog.target_id == elder_id)
+            ).scalars()
+        )
+        assert "update_elder_access" in actions
+    finally:
+        _cleanup_elders(db, [elder_id])
+
+
+def test_family_owner_can_grant_and_revoke_members(
+    client: TestClient, db, seeded_users
+) -> None:
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    elder = _create_elder(client, family_token, "家属主照护者授权老人")
+    elder_id = elder["id"]
+    other = _create_family_user(db)
+
+    try:
+        members = client.get(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(family_token),
+        )
+        assert members.status_code == 200
+        assert [item["role"] for item in members.json()] == ["owner"]
+
+        granted = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(family_token),
+            json=[
+                {
+                    "user_id": seeded_users.family.id,
+                    "role": "owner",
+                    "relation": "creator",
+                },
+                {"user_id": other.id, "role": "member", "relation": "son"},
+            ],
+        )
+        assert granted.status_code == 200
+        assert {item["user_id"]: item["role"] for item in granted.json()} == {
+            seeded_users.family.id: "owner",
+            other.id: "member",
+        }
+
+        other_token = _login(client, other.username, EXTRA_FAMILY_PASSWORD)
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}", headers=_headers(other_token)
+            ).status_code
+            == 200
+        )
+
+        revoked = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(family_token),
+            json=[
+                {
+                    "user_id": seeded_users.family.id,
+                    "role": "owner",
+                    "relation": "creator",
+                }
+            ],
+        )
+        assert revoked.status_code == 200
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}", headers=_headers(other_token)
+            ).status_code
+            == 403
+        )
+    finally:
+        _cleanup_elders(db, [elder_id])
+        _delete_user(db, other.id)
+
+
+def test_family_reads_bound_devices_readonly(
+    client: TestClient, db, seeded_users
+) -> None:
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    elder = _create_elder(client, admin_token, "测试家属只读设备")
+    elder_id = elder["id"]
+    session, _ = db
+    device: dict | None = None
+
+    try:
+        # 未授权时家属看不到该老人的设备
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}/devices",
+                headers=_headers(family_token),
+            ).status_code
+            == 403
+        )
+
+        created = client.post(
+            "/api/v1/devices",
+            headers=_headers(admin_token),
+            json={
+                "device_uid": f"esp32-{uuid.uuid4().hex[:10]}",
+                "kind": "esp32",
+            },
+        )
+        assert created.status_code == 201
+        device = created.json()
+        bound = client.post(
+            f"/api/v1/devices/{device['id']}/bind",
+            headers=_headers(admin_token),
+            json={"elder_id": elder_id},
+        )
+        assert bound.status_code == 200
+
+        granted = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+            json=[
+                {
+                    "user_id": seeded_users.family.id,
+                    "role": "member",
+                    "relation": "daughter",
+                }
+            ],
+        )
+        assert granted.status_code == 200
+
+        listing = client.get(
+            f"/api/v1/elders/{elder_id}/devices",
+            headers=_headers(family_token),
+        )
+        assert listing.status_code == 200
+        assert [item["id"] for item in listing.json()] == [device["id"]]
+
+        # 家属仍不能使用 admin 设备接口
+        assert (
+            client.post(
+                "/api/v1/devices",
+                headers=_headers(family_token),
+                json={
+                    "device_uid": f"esp32-{uuid.uuid4().hex[:10]}",
+                    "kind": "esp32",
+                },
+            ).status_code
+            == 403
+        )
+    finally:
+        if device is not None:
+            session.execute(
+                delete(AuditLog).where(
+                    AuditLog.target_type == "device",
+                    AuditLog.target_id == device["id"],
+                )
+            )
+            session.execute(delete(Device).where(Device.id == device["id"]))
+            session.commit()
+        _cleanup_elders(db, [elder_id])

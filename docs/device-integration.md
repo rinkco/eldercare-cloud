@@ -38,12 +38,12 @@ flowchart LR
 设备必须先注册，遥测和事件才能入库。注册与绑定接口仅允许 `admin`。
 
 可在管理台的“设备”页面操作，也可在 Swagger
-<http://127.0.0.1:8080/docs> 或 PowerShell 中调用。公网演示环境为管理台
-<http://47.108.147.192:3000>、Swagger <http://47.108.147.192:8080/docs>，
+<http://127.0.0.1:18080/docs> 或 PowerShell 中调用。公网演示环境为管理台
+<http://47.108.147.192:3000>、Swagger <http://47.108.147.192:18080/docs>，
 管理员口令由部署负责人提供。
 
 ```powershell
-$base = "http://127.0.0.1:8080"
+$base = "http://127.0.0.1:18080"
 
 # 本地演示默认 admin / admin123456；公网演示环境使用部署负责人提供的口令。
 $login = Invoke-RestMethod -Method Post `
@@ -84,7 +84,7 @@ Invoke-RestMethod -Method Post `
 - `kind` 可选值：`esp32`、`phone`、`wearable`；ESP32 使用 `esp32`。
 - 重复注册同一 UID 返回 HTTP `409`，不要通过换 UID 规避；应先确认管理台已有设备。
 - 一台设备同一时刻只能绑定一位老人；重复绑定或绑定已占用设备返回 `409`。
-- 当前没有“解绑”接口。设备已绑定时，应由平台管理侧处理其数据库状态或换用新设备。
+- 解绑：admin 在管理台设备页点「解绑」，或调用 `POST /api/v1/devices/{id}/unbind`；解绑后设备回到未绑定状态，历史遥测与事件保留。删除老人时也会自动解绑。
 
 ### 2.2 获取 Broker 连接凭据
 
@@ -104,7 +104,7 @@ MQTT_PASSWORD=change-me-mqtt
 - Broker：`47.108.147.192:1883`；试用实例停机重建后 IP 可能变化，以联调群公告为准。
 - MQTT 口令由部署负责人在群内提供，不要写进固件仓库或提交到 Git。
 - 设备注册/绑定使用管理员账号，可通过管理台 <http://47.108.147.192:3000>
-  或 Swagger <http://47.108.147.192:8080/docs> 操作。
+  或 Swagger <http://47.108.147.192:18080/docs> 操作。
 
 ## 3. Broker 连接参数
 
@@ -259,7 +259,7 @@ iot/v1/+/status      QoS 1
 | --- | --- | --- |
 | `fall` | `critical` | 设备端跌倒算法确认后上报 |
 | `sos` | `critical` | 按键、语音或人工触发 |
-| `geofence_exit` | `warning` | 可上报，但正常情况下由平台根据位置遥测生成 |
+| `geofence_exit` | `warning` | 可上报。设备侧判定（如 BLE 断连）与平台侧位置判定都支持 |
 | `low_battery` | `warning` | 可上报，但正常情况下由平台根据电量遥测生成 |
 
 字段约束：
@@ -281,6 +281,8 @@ iot/v1/+/status      QoS 1
 - 当前没有按 `severity` 过滤告警。即使上报 `info`，也会生成告警和通知。
 - `fall`、`sos` 通常由设备上报；`geofence_exit`、`low_battery` 建议优先上传
   原始位置/电量遥测，由平台规则统一判定，避免设备事件与规则事件重复。
+- 设备侧围栏（例如 BLE 断连）与平台侧围栏（中心 + 半径 + `location` 遥测）
+  是两种独立判定；同一设备只需选一种，围栏编辑器中的半径仅对上报位置遥测的设备生效。
 
 示例：
 
@@ -644,7 +646,7 @@ main()
    ```powershell
    docker compose up -d --build
    docker compose ps -a
-   Invoke-RestMethod http://127.0.0.1:8080/readyz
+   Invoke-RestMethod http://127.0.0.1:18080/readyz
    ```
 
 2. 初始化演示数据（如尚未执行）：
@@ -757,7 +759,7 @@ main()
 docker compose ps -a
 docker compose logs backend --since 10m
 docker compose logs mosquitto --tail 100
-Invoke-RestMethod http://127.0.0.1:8080/readyz
+Invoke-RestMethod http://127.0.0.1:18080/readyz
 Test-NetConnection 127.0.0.1 -Port 1883
 ```
 
@@ -802,7 +804,7 @@ Test-NetConnection 127.0.0.1 -Port 1883
 
 ## 14. 待确认
 
-- 公网演示环境当前为 `47.108.147.192`（API `8080`、MQTT `1883`、管理台 `3000`，
+- 公网演示环境当前为 `47.108.147.192`（API `18080`、MQTT `1883`、管理台 `3000`，
   安全组已放行对应端口）；试用实例停机重建后公网 IP 可能变化，最终地址以联调群
   公告为准。来源 IP 限制未启用，联调期间请使用强口令并避免真实个人数据。
 - 生产级 TLS、设备级 ACL、OTA 和下行命令是否后续实现，当前分支没有对应实现。

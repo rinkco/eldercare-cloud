@@ -7,6 +7,39 @@ from sqlalchemy.orm import Session
 from app.models import Elder, ElderAccess, User
 
 
+def get_elder_role(db: Session, user: User, elder_id: int) -> str | None:
+    """返回账号在该老人上的角色：admin / owner / member；无权限返回 None。"""
+    if user.role == "admin":
+        return "admin"
+    if user.role != "family":
+        return None
+    return db.execute(
+        select(ElderAccess.role).where(
+            ElderAccess.elder_id == elder_id,
+            ElderAccess.user_id == user.id,
+        )
+    ).scalar_one_or_none()
+
+
+def require_elder_role(
+    db: Session,
+    user: User,
+    elder_id: int,
+    allowed: tuple[str, ...],
+    *,
+    for_update: bool = False,
+) -> Elder:
+    """在可见范围内校验成员角色；不满足时 403。"""
+    elder = get_elder_for_user(db, user, elder_id, for_update=for_update)
+    role = get_elder_role(db, user, elder_id)
+    if role is None or role not in allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="需要主照护者权限",
+        )
+    return elder
+
+
 def get_elder_for_user(
     db: Session, user: User, elder_id: int, *, for_update: bool = False
 ) -> Elder:

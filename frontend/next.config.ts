@@ -4,7 +4,7 @@ import type { NextConfig } from "next";
 // 开发模式用 dev server rewrites 代理到本机后端（output: export 下 rewrites 不生效）。
 const isDev = process.env.NODE_ENV === "development";
 const devBackendUrl =
-  process.env.DEV_BACKEND_URL ?? "http://localhost:8080";
+  process.env.DEV_BACKEND_URL ?? "http://localhost:18080";
 
 const nextConfig: NextConfig = {
   ...(isDev

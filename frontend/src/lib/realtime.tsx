@@ -33,7 +33,7 @@ function realtimeUrl(token: string): string {
   }
   if (process.env.NODE_ENV === "development") {
     // 开发模式：REST 走 next rewrites，WebSocket 直连后端（WS 不受 CORS 限制）
-    return `ws://localhost:8080/api/v1/ws?${query}`;
+    return `ws://localhost:18080/api/v1/ws?${query}`;
   }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}/api/v1/ws?${query}`;

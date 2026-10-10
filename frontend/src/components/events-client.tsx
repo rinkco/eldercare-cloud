@@ -55,7 +55,6 @@ const EVENT_STATUS_OPTIONS = [
   { value: "", label: "全部状态" },
   { value: "new", label: "未处理" },
   { value: "handled", label: "已处理" },
-  { value: "closed", label: "已关闭" },
 ];
 
 function toIsoDateTime(value: string): string | undefined {

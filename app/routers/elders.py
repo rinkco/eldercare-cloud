@@ -4,12 +4,21 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.access import get_elder_for_user
+from app.access import get_elder_for_user, require_elder_role
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.models import Device, Elder, ElderAccess, ElderContact, User
-from app.schemas import ContactIn, ContactOut, ElderCreate, ElderOut, ElderUpdate
+from app.schemas import (
+    AccessMemberIn,
+    AccessMemberOut,
+    ContactIn,
+    ContactOut,
+    DeviceOut,
+    ElderCreate,
+    ElderOut,
+    ElderUpdate,
+)
 
 router = APIRouter(prefix="/api/v1/elders", tags=["老人档案"])
 
@@ -56,7 +65,12 @@ def create_elder(
 
     if user.role == "family":
         db.add(
-            ElderAccess(elder_id=elder.id, user_id=user.id, relation="creator")
+            ElderAccess(
+                elder_id=elder.id,
+                user_id=user.id,
+                role="owner",
+                relation="creator",
+            )
         )
 
     write_audit(
@@ -95,7 +109,9 @@ def update_elder(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> Elder:
-    elder = get_elder_for_user(db, user, elder_id, for_update=True)
+    elder = require_elder_role(
+        db, user, elder_id, ("admin", "owner"), for_update=True
+    )
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(elder, field, value)
 
@@ -121,7 +137,7 @@ def update_elder(
 def delete_elder(
     elder_id: int,
     request: Request,
-    user: User = Depends(require_roles("admin", "family")),
+    user: User = Depends(require_roles("admin")),
     db: Session = Depends(get_db),
 ) -> Response:
     elder = get_elder_for_user(db, user, elder_id, for_update=True)
@@ -226,3 +242,148 @@ def replace_contacts(
     for contact in contacts:
         db.refresh(contact)
     return contacts
+
+
+def _access_rows(db: Session, elder_id: int) -> list[AccessMemberOut]:
+    """查询监护成员并拼上账号展示信息。"""
+    rows = db.execute(
+        select(ElderAccess, User)
+        .join(User, User.id == ElderAccess.user_id)
+        .where(ElderAccess.elder_id == elder_id)
+        .order_by(ElderAccess.id)
+    ).all()
+    return [
+        AccessMemberOut(
+            id=access.id,
+            user_id=access.user_id,
+            username=member.username,
+            display_name=member.display_name,
+            role=access.role,
+            relation=access.relation,
+        )
+        for access, member in rows
+    ]
+
+
+@router.get(
+    "/{elder_id}/access",
+    response_model=list[AccessMemberOut],
+    summary="监护成员列表（admin / owner）",
+)
+def list_elder_access(
+    elder_id: int,
+    user: User = Depends(require_roles("admin", "family")),
+    db: Session = Depends(get_db),
+) -> list[AccessMemberOut]:
+    """admin 或该老人的 owner 查看监护成员。"""
+    require_elder_role(db, user, elder_id, ("admin", "owner"))
+    return _access_rows(db, elder_id)
+
+
+@router.put(
+    "/{elder_id}/access",
+    response_model=list[AccessMemberOut],
+    summary="整体替换监护成员（admin / owner）",
+    description=(
+        "整体替换：提交列表覆盖该老人全部监护成员，至少保留一位 owner；"
+        "只能关联 family 账号，成员重复或缺少 owner 返回 422。"
+    ),
+)
+def replace_elder_access(
+    elder_id: int,
+    payload: list[AccessMemberIn],
+    request: Request,
+    user: User = Depends(require_roles("admin", "family")),
+    db: Session = Depends(get_db),
+) -> list[AccessMemberOut]:
+    """admin 或 owner 整体替换监护成员，写审计 `update_elder_access`。"""
+    elder = require_elder_role(
+        db, user, elder_id, ("admin", "owner"), for_update=True
+    )
+
+    user_ids = [item.user_id for item in payload]
+    if len(user_ids) != len(set(user_ids)):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="监护成员不能重复",
+        )
+    if not payload:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="至少保留一位主照护者",
+        )
+    # admin 始终拥有管理权，可以只挂 member；family 操作必须保留 owner
+    if user.role != "admin" and not any(
+        item.role == "owner" for item in payload
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="至少保留一位主照护者",
+        )
+
+    members: dict[int, User] = {}
+    if user_ids:
+        members = {
+            item.id: item
+            for item in db.execute(
+                select(User).where(User.id.in_(user_ids))
+            ).scalars()
+        }
+    missing = [user_id for user_id in user_ids if user_id not in members]
+    if missing:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"账号不存在：{missing[0]}",
+        )
+    if any(item.role != "family" for item in members.values()):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="只能关联家属账号",
+        )
+
+    db.execute(delete(ElderAccess).where(ElderAccess.elder_id == elder_id))
+    rows = [
+        ElderAccess(
+            elder_id=elder_id,
+            user_id=item.user_id,
+            role=item.role,
+            relation=item.relation,
+        )
+        for item in payload
+    ]
+    db.add_all(rows)
+    db.flush()
+
+    write_audit(
+        db,
+        user_id=user.id,
+        action="update_elder_access",
+        target_type="elder",
+        target_id=elder.id,
+        ip=_client_ip(request),
+        detail={
+            "count": len(rows),
+            "owners": sum(1 for item in payload if item.role == "owner"),
+        },
+    )
+    db.commit()
+    return _access_rows(db, elder_id)
+
+
+@router.get(
+    "/{elder_id}/devices",
+    response_model=list[DeviceOut],
+    summary="老人绑定设备（只读，admin / 家属）",
+    description="家属可查看可见老人绑定的设备；注册、绑定与解绑仍仅 admin。",
+)
+def list_elder_devices(
+    elder_id: int,
+    user: User = Depends(require_roles("admin", "family")),
+    db: Session = Depends(get_db),
+) -> list[Device]:
+    get_elder_for_user(db, user, elder_id)
+    return list(
+        db.execute(
+            select(Device).where(Device.elder_id == elder_id).order_by(Device.id)
+        ).scalars()
+    )

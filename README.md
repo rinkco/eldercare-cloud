@@ -19,7 +19,7 @@ Docker Compose 服务：
 | 服务 | 说明 | 端口 |
 | --- | --- | --- |
 | `frontend` | Next.js 管理台（静态导出 + nginx 同源反代） | 宿主机 3000 → 容器 80 |
-| `backend` | FastAPI + REST + WebSocket + MQTT 消费 | 宿主机 8080 → 容器 8000 |
+| `backend` | FastAPI + REST + WebSocket + MQTT 消费 | 宿主机 18080 → 容器 8000 |
 | `postgres` | PostgreSQL 16（不对外暴露） | 仅容器网络 5432 |
 | `mosquitto` | MQTT broker（强制用户名密码） | 1883 |
 | `migrate` | 一次性迁移任务（`alembic upgrade head`） | 运行后退出 |
@@ -27,7 +27,7 @@ Docker Compose 服务：
 ## 前置条件
 
 - Windows 上安装 Docker Desktop（WSL2 后端）
-- 8080、1883、3000 端口未被占用（被占用时见「配置项」）
+- 18080、1883、3000 端口未被占用（被占用时见「配置项」）
 - 仅本地前端开发需要 Node.js 22+；容器构建已自带 Node
 
 ## 快速开始
@@ -46,12 +46,12 @@ docker compose up -d --build
 docker compose ps -a
 
 # 4. 健康检查
-Invoke-RestMethod http://127.0.0.1:8080/healthz
-Invoke-RestMethod http://127.0.0.1:8080/readyz   # 数据库、迁移版本、MQTT 都就绪才返回 200
+Invoke-RestMethod http://127.0.0.1:18080/healthz
+Invoke-RestMethod http://127.0.0.1:18080/readyz   # 数据库、迁移版本、MQTT 都就绪才返回 200
 ```
 
 - Web 管理台：<http://127.0.0.1:3000>（演示账号 admin / admin123456、family / family123456）
-- Swagger：<http://127.0.0.1:8080/docs>
+- Swagger：<http://127.0.0.1:18080/docs>
 - MQTT：`mqtt://127.0.0.1:1883`，账号见 `.env`
 
 ## 一键演示流程
@@ -69,14 +69,14 @@ docker compose exec backend python -m scripts.seed
 
 # 2. 登录拿 JWT
 $body = '{"username":"admin","password":"admin123456"}'
-$login = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8080/api/v1/auth/login `
+$login = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:18080/api/v1/auth/login `
   -ContentType "application/json" -Body $body
 $headers = @{ Authorization = "Bearer $($login.access_token)" }
 
 # 3. 查看老人 / 健康趋势
-$elders = Invoke-RestMethod -Uri http://127.0.0.1:8080/api/v1/elders -Headers $headers
+$elders = Invoke-RestMethod -Uri http://127.0.0.1:18080/api/v1/elders -Headers $headers
 $elder = $elders | Where-Object { $_.name -eq "演示老人-张奶奶" } | Select-Object -First 1
-Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/v1/elders/$($elder.id)/health-trends?interval=hour" -Headers $headers
+Invoke-RestMethod -Uri "http://127.0.0.1:18080/api/v1/elders/$($elder.id)/health-trends?interval=hour" -Headers $headers
 
 # 4. 启动模拟设备持续上报（另开终端，Ctrl+C 停止）
 docker compose exec backend python -m scripts.simulate_device
@@ -84,10 +84,10 @@ docker compose exec backend python -m scripts.simulate_device
 # 5. 演示跌倒告警（生成 event → alert → notification，并写入控制台）
 docker compose exec backend python -m scripts.simulate_device --scenario fall
 docker compose logs backend --tail 5      # 看到「[通知模拟] ... 触发跌倒」
-Invoke-RestMethod -Uri http://127.0.0.1:8080/api/v1/alerts -Headers $headers
+Invoke-RestMethod -Uri http://127.0.0.1:18080/api/v1/alerts -Headers $headers
 # 确认告警（把 status 置为 handled）
-$alerts = Invoke-RestMethod -Uri http://127.0.0.1:8080/api/v1/alerts -Headers $headers
-Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/v1/alerts/$($alerts[0].id)/ack" -Headers $headers
+$alerts = Invoke-RestMethod -Uri http://127.0.0.1:18080/api/v1/alerts -Headers $headers
+Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:18080/api/v1/alerts/$($alerts[0].id)/ack" -Headers $headers
 
 # 6. 演示低电量 / SOS / 围栏越界
 docker compose exec backend python -m scripts.simulate_device --scenario low-battery
@@ -104,7 +104,7 @@ WebSocket 实时推送（`token` 为上面登录返回的 JWT；宿主机需 `pi
 python -c @"
 import asyncio, json, websockets
 async def main():
-    async with websockets.connect('ws://127.0.0.1:8080/api/v1/ws?token=你的TOKEN') as ws:
+    async with websockets.connect('ws://127.0.0.1:18080/api/v1/ws?token=你的TOKEN') as ws:
         while True:
             print(json.loads(await ws.recv()))
 asyncio.run(main())
@@ -122,11 +122,11 @@ npm run dev        # http://localhost:3000
 ```
 
 开发模式下 `/api` 由 `next.config.ts` 的 rewrites 代理到
-`http://localhost:8080`；后端端口不同（例如 8080 被占用）时覆盖目标：
+`http://localhost:18080`；后端端口不同（例如 18080 被占用）时覆盖目标：
 
 ```powershell
-$env:DEV_BACKEND_URL = "http://localhost:18080"
-$env:NEXT_PUBLIC_WS_BASE = "ws://localhost:18080"   # WebSocket 直连后端
+$env:DEV_BACKEND_URL = "http://localhost:18081"
+$env:NEXT_PUBLIC_WS_BASE = "ws://localhost:18081"   # WebSocket 直连后端
 npm run dev
 ```
 
@@ -171,7 +171,7 @@ docker compose down -v                  # 清空数据库卷，重新开始
 | 变量 | 默认 | 说明 |
 | --- | --- | --- |
 | `POSTGRES_USER/PASSWORD/DB` | eldercare | 数据库凭据（仅容器网络可见） |
-| `BACKEND_PORT` | 8080 | 宿主机 REST/Swagger 端口；被占用时改这里 |
+| `BACKEND_PORT` | 18080 | 宿主机 REST/Swagger 端口；被占用时改这里 |
 | `FRONTEND_PORT` | 3000 | 宿主机 Web 管理台端口；被占用时改这里 |
 | `NPM_REGISTRY` | npmjs.org | 前端容器构建源；国内可改 npmmirror |
 | `MQTT_USER/PASSWORD` | eldercare | MQTT 账号（公网部署务必改强口令） |
@@ -182,12 +182,12 @@ docker compose down -v                  # 清空数据库卷，重新开始
 
 ## 云端部署（答辩演示）
 
-1. Ubuntu 云服务器安装 Docker + Docker Compose；安全组开放 8080、3000、1883（1883 建议限制来源），22 仅允许管理员 IP。
+1. Ubuntu 云服务器安装 Docker + Docker Compose；安全组开放 18080、3000、1883（1883 建议限制来源），22 仅允许管理员 IP。
 2. 上传代码，按上面的「快速开始」创建 `.env`，务必更换数据库/MQTT/SEED_* 口令与 JWT 密钥；
    若改了 `SEED_*` 口令，需同步修改 `NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` / `NEXT_PUBLIC_DEMO_FAMILY_PASSWORD`
    （登录页快捷登录注入口令），或设 `NEXT_PUBLIC_DEMO_LOGIN_ENABLED=false` 隐藏快捷登录。
 3. `docker compose up -d --build`，确认 `migrate` Exited (0)、四个容器 healthy。
-4. 手机流量访问 `http://<公网IP>:3000` 打开管理台完成演示；`http://<公网IP>:8080/docs` 为 Swagger；外部设备用带用户名密码的 MQTT 连接 1883。
+4. 手机流量访问 `http://<公网IP>:3000` 打开管理台完成演示；`http://<公网IP>:18080/docs` 为 Swagger；外部设备用带用户名密码的 MQTT 连接 1883（MQTT 端口不变）；App/硬件同学的 REST/WS 基址需同步改为 18080。
 5. 本地环境保持可用，作为答辩兜底。
 
 > 注意：WebSocket 的 JWT 通过查询参数传递，应用已对 uvicorn 日志做
@@ -210,7 +210,7 @@ docker compose down -v                  # 清空数据库卷，重新开始
 | 现象 | 处理 |
 | --- | --- |
 | `docker compose up` 报 Docker daemon 未运行 | 启动 Docker Desktop 后重试 |
-| 8080 打不开或返回别的内容 | 端口被占用，改 `.env` 的 `BACKEND_PORT` 后 `docker compose up -d` |
+| 18080 打不开或返回别的内容 | 端口被占用，改 `.env` 的 `BACKEND_PORT` 后 `docker compose up -d` |
 | 3000 打不开或返回别的内容 | 端口被占用，改 `.env` 的 `FRONTEND_PORT` 后 `docker compose up -d frontend` |
 | 前端容器构建 npm 下载慢 | 在 `.env` 设置 `NPM_REGISTRY=https://registry.npmmirror.com` |
 | 构建时 pip 下载超时 | 在 `.env` 设置 `PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple` |

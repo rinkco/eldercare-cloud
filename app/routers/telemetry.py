@@ -68,6 +68,12 @@ def health_trends(
     interval: Literal["hour", "day"] = "hour",
     start: datetime | None = None,
     end: datetime | None = None,
+    limit: int | None = Query(
+        default=None,
+        ge=1,
+        le=720,
+        description="只返回最近 N 个分桶；与 start/end 同时使用时先过滤再取尾部",
+    ),
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[TrendBucket]:
@@ -134,4 +140,5 @@ def health_trends(
             ActivityCount(activity=activity or "unknown", count=int(count))
         )
 
-    return [buckets[key] for key in sorted(buckets)]
+    items = [buckets[key] for key in sorted(buckets)]
+    return items[-limit:] if limit is not None else items

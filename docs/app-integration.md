@@ -16,20 +16,20 @@ backend --REST/WebSocket--> App
 backend --REST/WebSocket--> Web 管理台
 ```
 
-App 直接对接 FastAPI 后端，不建议把 Web 管理台（3000）当成 API 服务。管理台的 `/api` 是 nginx 同源代理，App 使用后端地址（本地默认 `http://127.0.0.1:8080`）更直接。
+App 直接对接 FastAPI 后端，不建议把 Web 管理台（3000）当成 API 服务。管理台的 `/api` 是 nginx 同源代理，App 使用后端地址（本地默认 `http://127.0.0.1:18080`）更直接。
 
 App 端的职责边界：
 
 - 主要使用 `family` 账号，面向家属和共用账号下的长辈视图。
 - Web 管理台和运维使用 `admin` 账号。不要把 admin 账号打进移动端或让普通用户持有 admin Token。
-- 设备注册、设备列表、设备绑定只有 admin 接口。当前没有 family 可用的“查看某老人绑定设备”接口，因此设备管理不应默认进入 App 首版范围。
+- 设备注册、列表、绑定、解绑只有 admin 接口；family 可用 `GET /api/v1/elders/{id}/devices` 只读查看某老人绑定设备。
 - 长辈视图只是前端交互约定，不是后端安全隔离。`family` 账号仍然拥有老人、联系人、围栏、告警确认等写权限。App 的“只读”页面必须隐藏写操作，但不能把它当作安全边界。
 - App 需要实时告警时使用 WebSocket；WebSocket 断开期间用 REST 轮询兜底。
 
 以下事项需要产品/联调双方对齐（含最新进展）：
 
-- App 是否需要展示绑定设备或电量：当前 family 没有对应设备读取接口，是否新增只读接口**待确认**。
-- 云端联调地址已就绪：REST API `http://47.108.147.192:8080`、管理台 `http://47.108.147.192:3000`、
+- App 展示绑定设备或电量：已提供 `GET /api/v1/elders/{elder_id}/devices`（admin 与关联家属可用），字段含 `status`、`battery_percent`、`last_seen_at`。
+- 云端联调地址已就绪：REST API `http://47.108.147.192:18080`、管理台 `http://47.108.147.192:3000`、
   MQTT `47.108.147.192:1883`；账号口令请联系部署负责人获取，不要写入仓库。
   模拟器/真机访问宿主机或云端的最终基址仍按各自 App 工程配置确定。
 - 公网演示环境当前为 `IP:端口` 的 HTTP，没有域名与 HTTPS；是否补充 HTTPS 由部署方后续决定。
@@ -40,10 +40,10 @@ App 端的职责边界：
 
 | 服务 | 本地地址 | 说明 |
 | --- | --- | --- |
-| 后端 REST / Swagger | `http://127.0.0.1:8080` | App 的默认本地 API 基址 |
-| 后端健康检查 | `http://127.0.0.1:8080/healthz` | 只检查进程存活 |
-| 后端就绪检查 | `http://127.0.0.1:8080/readyz` | 数据库、迁移、MQTT 都正常才返回 200 |
-| Swagger | `http://127.0.0.1:8080/docs` | 可直接查看当前路由和 schema |
+| 后端 REST / Swagger | `http://127.0.0.1:18080` | App 的默认本地 API 基址 |
+| 后端健康检查 | `http://127.0.0.1:18080/healthz` | 只检查进程存活 |
+| 后端就绪检查 | `http://127.0.0.1:18080/readyz` | 数据库、迁移、MQTT 都正常才返回 200 |
+| Swagger | `http://127.0.0.1:18080/docs` | 可直接查看当前路由和 schema |
 | Web 管理台 | `http://127.0.0.1:3000` | Next.js + nginx 管理台，不是 App 必需依赖 |
 | MQTT | `mqtt://127.0.0.1:1883` | 设备侧联调使用，App 不直接连接 |
 
@@ -53,9 +53,12 @@ App 在模拟器或真机上运行时，`localhost` 指手机/模拟器自身，
 
 | 服务 | 地址 | 说明 |
 | --- | --- | --- |
-| REST / Swagger | `http://47.108.147.192:8080` | App 可直接使用该基址，Swagger 在 `/docs` |
+| REST / Swagger | `http://47.108.147.192:18080` | App 可直接使用该基址，Swagger 在 `/docs` |
 | 管理台 | `http://47.108.147.192:3000` | 注册账号、用户编辑、设备注册与演示数据 |
 | MQTT | `mqtt://47.108.147.192:1883` | 设备侧联调使用，App 不直接连接 |
+
+> 端口变更提醒：云端已统一使用 18080；App 需同步修改 `api/ApiConfig.java` 的
+> `BASE_URL` / `WS_URL` 与 `res/xml/network_security_config.xml`。MQTT 仍为 1883，不受影响。
 
 演示环境的 admin / family / MQTT 口令由部署负责人在联调群内提供，仓库与本文档
 不保存实际口令。服务为云厂商试用实例，停机或重建后公网 IP 可能变化，以群内
@@ -75,8 +78,8 @@ Write-Output $secret
 docker compose up -d --build
 docker compose ps -a
 
-Invoke-RestMethod http://127.0.0.1:8080/healthz
-Invoke-RestMethod http://127.0.0.1:8080/readyz
+Invoke-RestMethod http://127.0.0.1:18080/healthz
+Invoke-RestMethod http://127.0.0.1:18080/readyz
 ```
 
 启动成功的典型状态：
@@ -186,7 +189,7 @@ Authorization: Bearer <access_token>
 
 ```powershell
 $TOKEN = "<access_token>"
-curl.exe -sS "http://127.0.0.1:8080/api/v1/elders" `
+curl.exe -sS "http://127.0.0.1:18080/api/v1/elders" `
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -290,7 +293,8 @@ WWW-Authenticate: Bearer
 | 老人列表 / 详情 | 全量 | 仅 `elder_access` 关联的老人 |
 | 新建 / 修改 / 删除老人 | 是 | 仅可见老人；family 新建后自动获得关联 |
 | 紧急联系人读取 / 整体替换 | 是 | 仅可见老人 |
-| 设备列表 / 注册 / 绑定 | 是 | 否，返回 403 |
+| 设备注册 / 列表 / 绑定 / 解绑 | 是 | 否，返回 403 |
+| 老人绑定设备（只读） | 全量 | 仅关联老人 |
 | 电子围栏读取 / 整体替换 | 是 | 仅可见老人 |
 | 遥测查询 / 健康趋势 | 是 | 仅可见老人 |
 | 事件列表 | 全量 | 自动过滤到关联老人 |
@@ -412,13 +416,15 @@ WWW-Authenticate: Bearer
 
 ### 5.4 设备
 
-设备接口全部仅限 admin。family 调用列表、注册、绑定都会返回 403。
+设备注册 / 列表 / 绑定 / 解绑仅限 admin；family 可通过老人维度只读接口查看绑定设备。
 
 | 方法 | 路径 | 角色 | 请求 | 响应 | 错误语义 |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/v1/devices` | admin | 无 | `DeviceOut[]` | 403 |
 | POST | `/api/v1/devices` | admin | `DeviceCreate` | 201：`DeviceOut` | 403、409、422 |
 | POST | `/api/v1/devices/{device_id}/bind` | admin | `DeviceBind` | `DeviceOut` | 403、404、409、422 |
+| POST | `/api/v1/devices/{device_id}/unbind` | admin | 无 | `DeviceOut` | 403、404、409 |
+| GET | `/api/v1/elders/{elder_id}/devices` | admin / family | 无 | `DeviceOut[]` | 403、404 |
 
 注册设备：
 
@@ -447,7 +453,7 @@ WWW-Authenticate: Bearer
 - 设备已被其他老人占用返回 409。
 - 设备状态为 `disabled` 时绑定返回 409。
 - 绑定成功后 `bound_at` 使用服务器 UTC 时间。
-- 删除老人时，后端自动清除其设备绑定并清空 `bound_at`；没有单独的解绑接口。
+- 解绑接口把设备置回未绑定并清空 `bound_at`，历史遥测与事件保留；删除老人时也会自动解绑。
 
 ### 5.5 遥测与健康趋势
 
@@ -471,7 +477,7 @@ WWW-Authenticate: Bearer
 示例：
 
 ```powershell
-curl.exe -sS "http://127.0.0.1:8080/api/v1/elders/1/telemetry?metric=heart_rate&limit=50" `
+curl.exe -sS "http://127.0.0.1:18080/api/v1/elders/1/telemetry?metric=heart_rate&limit=50" `
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -506,6 +512,7 @@ curl.exe -sS "http://127.0.0.1:8080/api/v1/elders/1/telemetry?metric=heart_rate&
 | `interval` | string | 否 | 只能是 `hour` 或 `day`，默认 `hour` |
 | `start` | datetime | 否 | 带时区 |
 | `end` | datetime | 否 | 带时区 |
+| `limit` | integer | 否 | 只返回最近 N 个分桶，范围 1 到 720；省略返回全部 |
 
 返回 `TrendBucket[]`，按 `bucket_start` 升序。
 
@@ -590,7 +597,7 @@ curl.exe -sS "http://127.0.0.1:8080/api/v1/elders/1/telemetry?metric=heart_rate&
 
 `status` 查询值在 REST 层不做枚举校验；未知值返回空数组。
 
-`AlertOut` 不包含 `occurred_at`。如果需要事件发生时间，App 应使用 `event_id` 去查 `/api/v1/events`，或暂时使用告警 `created_at`。
+`AlertOut` 现已包含 `occurred_at`（事件发生时间）与 `elder_name`，App 无需再按 `event_id` 二次查询或只用 `created_at` 兜底。
 
 #### 告警确认
 
@@ -731,7 +738,7 @@ PATCH 请求示例（省略字段表示不修改；`display_name` / `phone` 传 
 ### 6.1 最小 PowerShell 闭环
 
 ```powershell
-$Base = "http://127.0.0.1:8080"
+$Base = "http://127.0.0.1:18080"
 
 $loginBody = '{"username":"family","password":"family123456"}'
 $login = Invoke-RestMethod `
@@ -790,7 +797,7 @@ if ($alerts.Count -gt 0) {
 Windows PowerShell 使用 `curl.exe`，避免 `curl` 被解析为 `Invoke-WebRequest`：
 
 ```powershell
-$Base = "http://127.0.0.1:8080"
+$Base = "http://127.0.0.1:18080"
 
 curl.exe -sS -X POST "$Base/api/v1/auth/login" `
   -H "Content-Type: application/json" `
@@ -963,7 +970,7 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 连接地址：
 
 ```text
-ws://127.0.0.1:8080/api/v1/ws?token=<URL 编码后的 access_token>
+ws://127.0.0.1:18080/api/v1/ws?token=<URL 编码后的 access_token>
 ```
 
 注意：
@@ -1001,7 +1008,7 @@ ws://127.0.0.1:8080/api/v1/ws?token=<URL 编码后的 access_token>
 }
 ```
 
-WebSocket 的 `alert` 比 REST `AlertOut` 多了 `elder_name` 和 `occurred_at`，但没有 `created_at`、`handled_at`、`handled_by`。App 收到后可按 `alert.id` 去重，并用 REST 刷新完整详情。
+WebSocket 的 `alert` 与 REST `AlertOut` 都包含 `elder_name`、`occurred_at`；WS 消息不含 `created_at`、`handled_at`、`handled_by`，App 收到后可先展示，再用 REST 刷新完整详情。
 
 ### 8.3 遥测消息
 
@@ -1187,7 +1194,7 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 | 触发 fall 后没有告警 | 检查设备是否已注册并绑定、MQTT 是否 healthy、`readyz` 是否 200 |
 | 没有通知记录 | 确认告警存在，并请求 `/alerts/{alert_id}/notifications` |
 | 时间查询返回 422 | 给 `start`、`end` 补充 `Z` 或 `+08:00` |
-| 浏览器/H5 直连 8080 被 CORS 拦截 | 后端未配置 CORS；原生 App 不受浏览器同源策略影响，H5 应走同源代理或由平台层处理 |
+| 浏览器/H5 直连 18080 被 CORS 拦截 | 后端未配置 CORS；原生 App 不受浏览器同源策略影响，H5 应走同源代理或由平台层处理 |
 
 ## 10. 联调检查清单
 
@@ -1224,18 +1231,19 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - 本地与当前 compose 默认使用 HTTP，不包含 HTTPS、TLS 证书和 WAF。
 - 没有 refresh token、Token 续期接口、Token 吊销接口和服务端 logout。
 - 已提供公开注册（`POST /api/v1/auth/register`，固定 family 角色）与 admin 用户编辑
-  （`PATCH /api/v1/users/{id}`）；仍没有账号停用/删除、找回密码、自助改密，
-  也没有“把已有老人关联到账号”的管理接口；演示账号仍由 seed 与 `.env` 同步。
+  （`PATCH /api/v1/users/{id}`），以及监护成员管理
+  （`GET/PUT /api/v1/elders/{id}/access`，owner/member 两级）；
+  仍没有账号停用/删除、找回密码、自助改密；演示账号仍由 seed 与 `.env` 同步。
 - 没有 `/api/v1/me/*` 老人专属接口。
 - 没有独立 `elder` 登录角色；老人和 family 共用一个账号。
 - 长辈视图只读是展示层约定，不是权限隔离。
-- 设备注册、设备列表、设备绑定仅 admin；family 没有绑定设备读取接口。
-- 没有单独解绑设备接口；删除老人会自动解绑。
+- 设备注册、设备列表、设备绑定、解绑仅 admin；family 可通过
+  `GET /api/v1/elders/{id}/devices` 只读查看绑定设备。
 - 电子围栏和紧急联系人均为整体替换，没有单条更新接口。
 - REST 列表没有分页、搜索、排序和总数。
 - WebSocket 没有离线补发、消息序号、业务心跳和送达确认。
 - 没有单条事件或告警详情接口，App 只能从列表接口按条件筛选。
-- 告警 REST 响应没有 `occurred_at` 和老人姓名；这些字段仅在事件查询或 WebSocket 告警消息中部分可用。
+- 告警 REST 与 WebSocket 均包含 `occurred_at` 和 `elder_name`。
 - `Alert.status` 和 `Event.status` 是两套状态；确认告警不会改变事件状态。
 - `handled_by` 只有用户 ID，App 需要用户列表或本地映射才能显示处理人名称；family 无用户列表权限。
 - 通知只使用 console 模拟，不发送真实短信、微信或电话。

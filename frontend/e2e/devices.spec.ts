@@ -27,8 +27,17 @@ test.describe("设备管理", () => {
     await bindDialog.getByRole("button", { name: "绑定", exact: true }).click();
     await expect(page.getByText("设备已绑定")).toBeVisible();
     await expect(
-      page.getByRole("row").filter({ hasText: uid }).getByText("已绑定")
+      page.getByRole("row").filter({ hasText: uid }).getByRole("button", {
+        name: "解绑",
+      })
     ).toBeVisible();
+
+    // 解绑后设备回到未绑定状态
+    await row.getByRole("button", { name: "解绑" }).click();
+    const unbindDialog = page.getByRole("dialog");
+    await unbindDialog.getByRole("button", { name: "解绑", exact: true }).click();
+    await expect(page.getByText("设备已解绑")).toBeVisible();
+    await expect(row.getByRole("button", { name: /绑定/ })).toBeVisible();
 
     // 重复注册同一 UID → 表单内显示后端 409 原因
     await page.getByRole("button", { name: "注册设备" }).first().click();

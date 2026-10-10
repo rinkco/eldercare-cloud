@@ -278,6 +278,25 @@ def test_health_trends_day(
     assert buckets[0]["steps_total"] == 250.0
 
 
+def test_health_trends_limit_returns_latest_buckets(
+    client: TestClient, db, query_context
+) -> None:
+    session, _ = db
+    _seed_telemetry(query_context, session)
+    elder_id = query_context["linked"]["id"]
+
+    response = client.get(
+        f"/api/v1/elders/{elder_id}/health-trends",
+        headers=_headers(query_context["admin_token"]),
+        params={"interval": "hour", "limit": 1},
+    )
+
+    assert response.status_code == 200
+    buckets = response.json()
+    assert len(buckets) == 1
+    assert buckets[0]["heart_rate"]["avg"] == 90.0
+
+
 def test_events_visibility_and_filter(
     client: TestClient, db, query_context
 ) -> None:
@@ -369,6 +388,7 @@ def test_alert_query_and_acknowledge(
     assert body["handled_at"] is not None
 
     session.expire_all()
+    assert session.get(Event, linked_event.id).status == "handled"
     audit = session.execute(
         select(AuditLog).where(
             AuditLog.action == "ack_alert",

@@ -190,6 +190,31 @@ class ContactOut(ContactIn):
     id: int
 
 
+class AccessMemberIn(BaseModel):
+    """监护成员整体替换的单行入参。"""
+
+    model_config = ConfigDict(extra="forbid")
+
+    user_id: int = Field(gt=0, description="家属账号 ID")
+    role: Literal["owner", "member"] = Field(
+        description="owner=主照护者（可管理成员），member=普通成员"
+    )
+    relation: str | None = Field(default=None, max_length=32)
+
+
+class AccessMemberOut(BaseModel):
+    """监护成员列表项（含账号展示信息）。"""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    username: str
+    display_name: str | None = None
+    role: str
+    relation: str | None = None
+
+
 class DeviceCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -290,6 +315,8 @@ class AlertOut(BaseModel):
     handled_by: int | None = None
     event_type: str
     severity: str
+    occurred_at: datetime
+    elder_name: str | None = None
 
 
 class MetricStats(BaseModel):

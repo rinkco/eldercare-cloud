@@ -10,14 +10,16 @@ from app.access import get_elder_for_user
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import require_roles
-from app.models import Alert, ElderAccess, Event, Notification, User
+from app.models import Alert, Elder, ElderAccess, Event, Notification, User
 from app.schemas import AlertOut, EventOut, NotificationOut
 from app.timeutils import ensure_utc
 
 router = APIRouter(prefix="/api/v1", tags=["事件与告警"])
 
 
-def _alert_out(alert: Alert, event: Event) -> AlertOut:
+def _alert_out(
+    alert: Alert, event: Event, elder_name: str | None = None
+) -> AlertOut:
     return AlertOut(
         id=alert.id,
         event_id=alert.event_id,
@@ -28,6 +30,8 @@ def _alert_out(alert: Alert, event: Event) -> AlertOut:
         handled_by=alert.handled_by,
         event_type=event.type,
         severity=event.severity,
+        occurred_at=event.occurred_at,
+        elder_name=elder_name,
     )
 
 
@@ -73,7 +77,11 @@ def list_alerts(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[AlertOut]:
-    statement = select(Alert, Event).join(Event, Event.id == Alert.event_id)
+    statement = (
+        select(Alert, Event, Elder)
+        .join(Event, Event.id == Alert.event_id)
+        .join(Elder, Elder.id == Alert.elder_id)
+    )
     if user.role == "family":
         statement = statement.join(
             ElderAccess, ElderAccess.elder_id == Alert.elder_id
@@ -86,7 +94,8 @@ def list_alerts(
         limit
     )
     return [
-        _alert_out(alert, event) for alert, event in db.execute(statement).all()
+        _alert_out(alert, event, elder.name)
+        for alert, event, elder in db.execute(statement).all()
     ]
 
 
@@ -96,7 +105,7 @@ def list_alerts(
     summary="告警确认（admin / family）",
     description=(
         "把告警从 new 置为 handled 并记录处理人；重复确认幂等。"
-        "events 表是原始事件记录，不随告警确认变更状态。"
+        "同一事务把对应事件的 status 从 new 置为 handled。"
     ),
 )
 def acknowledge_alert(
@@ -120,6 +129,9 @@ def acknowledge_alert(
         alert.status = "handled"
         alert.handled_at = datetime.now(timezone.utc)
         alert.handled_by = user.id
+        event = db.get(Event, alert.event_id)
+        if event is not None and event.status == "new":
+            event.status = "handled"
         write_audit(
             db,
             user_id=user.id,
@@ -133,7 +145,8 @@ def acknowledge_alert(
         db.refresh(alert)
 
     event = db.get(Event, alert.event_id)
-    return _alert_out(alert, event)
+    elder = db.get(Elder, alert.elder_id)
+    return _alert_out(alert, event, elder.name if elder is not None else None)
 
 
 @router.get(

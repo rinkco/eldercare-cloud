@@ -40,7 +40,7 @@ import { useRealtime } from "@/lib/realtime";
 import type { Alert, NotificationRecord, RealtimeMessage } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-type AlertStatusFilter = "" | "new" | "handled" | "closed";
+type AlertStatusFilter = "" | "new" | "handled";
 type TimeRangeFilter = "all" | "today" | "7d";
 type AlertLoadOptions = {
   showLoading?: boolean;
@@ -51,7 +51,6 @@ const STATUS_OPTIONS = [
   { value: "", label: "全部状态" },
   { value: "new", label: "未处理" },
   { value: "handled", label: "已处理" },
-  { value: "closed", label: "已关闭" },
 ];
 
 const TIME_OPTIONS = [
@@ -99,7 +98,7 @@ function NotificationStatusBadge({ status }: { status: string }) {
 
 export function AlertsClient() {
   const { session } = useAuth();
-  const { subscribe, status: realtimeStatus } = useRealtime();
+  const { subscribe } = useRealtime();
   const { toast } = useToast();
   const { elders } = useElderList();
 
@@ -165,12 +164,12 @@ export function AlertsClient() {
   }, [alerts]);
 
   useEffect(() => {
-    if (!session || realtimeStatus === "open") return;
+    if (!session) return;
     const timer = window.setInterval(() => {
       void load({ showLoading: false });
     }, 30_000);
     return () => window.clearInterval(timer);
-  }, [session, realtimeStatus, load]);
+  }, [session, load]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -201,6 +200,11 @@ export function AlertsClient() {
 
   useEffect(() => {
     const unsubscribe = subscribe((message: RealtimeMessage) => {
+      if (message.type === "ready") {
+        // WS 首连/重连后全量补齐断线期间漏掉的告警
+        void load({ showLoading: false });
+        return;
+      }
       if (message.type !== "alert") return;
       const incoming = message.alert;
       if (alertIdsRef.current.has(incoming.id)) return;
@@ -232,7 +236,7 @@ export function AlertsClient() {
       }
       flashTimers.current.clear();
     };
-  }, [subscribe, markFlash]);
+  }, [subscribe, markFlash, load]);
 
   useEffect(() => {
     if (selectedAlertId === null) {

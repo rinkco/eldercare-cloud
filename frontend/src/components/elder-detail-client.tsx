@@ -4,7 +4,6 @@ import {
   ArrowLeft,
   BatteryMedium,
   Check,
-  Cpu,
   Pencil,
   Phone,
   Plus,
@@ -32,6 +31,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
+import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
@@ -58,6 +58,7 @@ import {
   toLocalInputValue,
 } from "@/lib/format";
 import type {
+  AccessMember,
   Alert,
   Contact,
   ContactInput,
@@ -65,6 +66,7 @@ import type {
   Elder,
   EventRecord,
   Telemetry,
+  UserOut,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -265,6 +267,14 @@ export function ElderDetailClient() {
   const [alertsLoading, setAlertsLoading] = useState(true);
   const [alertsError, setAlertsError] = useState<string | null>(null);
 
+  const [members, setMembers] = useState<AccessMember[]>([]);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
+  const [familyUsers, setFamilyUsers] = useState<UserOut[]>([]);
+  const [memberUserId, setMemberUserId] = useState("");
+  const [memberRole, setMemberRole] = useState<"owner" | "member">("member");
+  const [savingMember, setSavingMember] = useState(false);
+
   const isAdmin = session?.role === "admin";
 
   useEffect(() => {
@@ -341,17 +351,15 @@ export function ElderDetailClient() {
   const loadDevices = useCallback(
     async (signal?: AbortSignal) => {
       if (!session || elderId === null) return;
-      if (!isAdmin) {
-        setDevices([]);
-        setDevicesError(null);
-        setDevicesLoading(false);
-        return;
-      }
       setDevicesLoading(true);
       setDevicesError(null);
       try {
-        const data = await api.get<Device[]>("/api/v1/devices", signal);
-        setDevices(data.filter((device) => device.elder_id === elderId));
+        // 家属与管理台共用老人维度的只读设备接口
+        const data = await api.get<Device[]>(
+          `/api/v1/elders/${elderId}/devices`,
+          signal
+        );
+        setDevices(data);
       } catch (caught: unknown) {
         if (isAbortError(caught)) return;
         setDevicesError(describeError(caught, "加载绑定设备失败。"));
@@ -359,7 +367,7 @@ export function ElderDetailClient() {
         if (!signal?.aborted) setDevicesLoading(false);
       }
     },
-    [elderId, isAdmin, session]
+    [elderId, session]
   );
 
   const loadTelemetry = useCallback(
@@ -425,6 +433,56 @@ export function ElderDetailClient() {
     [elderId, session]
   );
 
+  const loadMembers = useCallback(
+    async (signal?: AbortSignal) => {
+      if (!session || elderId === null || !isAdmin) return;
+      setMembersLoading(true);
+      setMembersError(null);
+      try {
+        const [access, users] = await Promise.all([
+          api.get<AccessMember[]>(
+            `/api/v1/elders/${elderId}/access`,
+            signal
+          ),
+          api.get<UserOut[]>("/api/v1/users", signal),
+        ]);
+        setMembers(access);
+        setFamilyUsers(users.filter((user) => user.role === "family"));
+      } catch (caught: unknown) {
+        if (isAbortError(caught)) return;
+        setMembersError(describeError(caught, "加载监护成员失败。"));
+      } finally {
+        if (!signal?.aborted) setMembersLoading(false);
+      }
+    },
+    [elderId, isAdmin, session]
+  );
+
+  const saveMembers = useCallback(
+    async (next: Array<{ user_id: number; role: "owner" | "member" }>) => {
+      if (elderId === null) return;
+      setSavingMember(true);
+      setMembersError(null);
+      try {
+        const saved = await api.put<AccessMember[]>(
+          `/api/v1/elders/${elderId}/access`,
+          next.map((item) => ({ ...item, relation: null }))
+        );
+        setMembers(saved);
+        toast({
+          title: "监护成员已更新",
+          description: "家属可见范围将在 30 秒内自动生效。",
+          variant: "success",
+        });
+      } catch (caught: unknown) {
+        setMembersError(describeError(caught, "保存监护成员失败。"));
+      } finally {
+        setSavingMember(false);
+      }
+    },
+    [elderId, toast]
+  );
+
   useEffect(() => {
     if (idState !== "ready" || elderId === null) return;
     const controller = new AbortController();
@@ -434,6 +492,7 @@ export function ElderDetailClient() {
     void loadTelemetry(controller.signal);
     void loadEvents(controller.signal);
     void loadAlerts(controller.signal);
+    void loadMembers(controller.signal);
     return () => controller.abort();
   }, [
     elderId,
@@ -442,6 +501,7 @@ export function ElderDetailClient() {
     loadContacts,
     loadDevices,
     loadEvents,
+    loadMembers,
     loadProfile,
     loadTelemetry,
   ]);
@@ -831,18 +891,177 @@ export function ElderDetailClient() {
         </section>
       </div>
 
+      {isAdmin ? (
+        <section className="mt-4 rounded-[8px] border border-line bg-panel">
+          <SectionHeader
+            title="监护成员"
+            description="授权家属账号查看该老人；主照护者拥有成员管理权限。"
+          />
+          {membersLoading ? (
+            <TableWrapper className="rounded-none border-0">
+              <TableSkeleton rows={3} columns={4} />
+            </TableWrapper>
+          ) : membersError ? (
+            <ErrorState
+              message={membersError}
+              onRetry={() => void loadMembers()}
+            />
+          ) : (
+            <div>
+              {members.length === 0 ? (
+                <EmptyState
+                  title="暂未授权家属"
+                  description="添加一位家属账号后，该账号即可看到这位老人的数据。"
+                />
+              ) : (
+                <TableWrapper className="rounded-none border-0">
+                  <Table className="min-w-[720px]">
+                    <THead>
+                      <TR className="hover:bg-transparent">
+                        <TH>账号</TH>
+                        <TH>显示名</TH>
+                        <TH>角色</TH>
+                        <TH className="text-right">操作</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {members.map((member) => (
+                        <TR key={member.user_id}>
+                          <TD className="font-medium text-ink">
+                            {member.username}
+                          </TD>
+                          <TD className="text-ink-muted">
+                            {member.display_name ?? "—"}
+                          </TD>
+                          <TD>
+                            <Select
+                              value={member.role}
+                              onValueChange={(value) =>
+                                void saveMembers(
+                                  members.map((item) => ({
+                                    user_id: item.user_id,
+                                    role:
+                                      item.user_id === member.user_id
+                                        ? (value as "owner" | "member")
+                                        : item.role,
+                                  }))
+                                )
+                              }
+                              options={[
+                                { value: "owner", label: "主照护者" },
+                                { value: "member", label: "普通成员" },
+                              ]}
+                              className="w-32"
+                              aria-label={`设置 ${member.username} 的角色`}
+                            />
+                          </TD>
+                          <TD>
+                            <div className="flex justify-end">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                disabled={savingMember || members.length <= 1}
+                                onClick={() =>
+                                  void saveMembers(
+                                    members
+                                      .filter(
+                                        (item) =>
+                                          item.user_id !== member.user_id
+                                      )
+                                      .map((item) => ({
+                                        user_id: item.user_id,
+                                        role: item.role,
+                                      }))
+                                  )
+                                }
+                              >
+                                <Trash2 />
+                                移除
+                              </Button>
+                            </div>
+                          </TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </TableWrapper>
+              )}
+
+              <div className="flex flex-wrap items-end gap-3 border-t border-line px-4 py-4">
+                <div className="flex min-w-[220px] flex-col gap-1.5">
+                  <span className="text-[12px] text-ink-muted">
+                    添加家属账号
+                  </span>
+                  <Select
+                    value={memberUserId}
+                    onValueChange={setMemberUserId}
+                    options={familyUsers
+                      .filter(
+                        (user) =>
+                          !members.some(
+                            (member) => member.user_id === user.id
+                          )
+                      )
+                      .map((user) => ({
+                        value: String(user.id),
+                        label: user.display_name
+                          ? `${user.display_name}（${user.username}）`
+                          : user.username,
+                      }))}
+                    placeholder="选择家属账号"
+                    className="w-56"
+                    aria-label="选择要添加的家属账号"
+                  />
+                </div>
+                <div className="flex flex-col gap-1.5">
+                  <span className="text-[12px] text-ink-muted">角色</span>
+                  <Select
+                    value={memberRole}
+                    onValueChange={(value) =>
+                      setMemberRole(value as "owner" | "member")
+                    }
+                    options={[
+                      { value: "member", label: "普通成员" },
+                      { value: "owner", label: "主照护者" },
+                    ]}
+                    className="w-32"
+                    aria-label="新成员角色"
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  disabled={!memberUserId || savingMember}
+                  onClick={() => {
+                    const userId = Number(memberUserId);
+                    if (!userId) return;
+                    void saveMembers([
+                      ...members.map((item) => ({
+                        user_id: item.user_id,
+                        role: item.role,
+                      })),
+                      { user_id: userId, role: memberRole },
+                    ]);
+                    setMemberUserId("");
+                    setMemberRole("member");
+                  }}
+                >
+                  <Plus />
+                  添加
+                </Button>
+              </div>
+            </div>
+          )}
+        </section>
+      ) : null}
+
       <div className="mt-4 grid gap-4 xl:grid-cols-2">
         <section className="rounded-[8px] border border-line bg-panel">
           <SectionHeader
             title="绑定设备"
             description="与该老人关联的监护终端。"
           />
-          {!isAdmin ? (
-            <div className="flex items-center gap-3 px-4 py-10 text-[13px] text-ink-muted">
-              <Cpu className="size-5 text-ink-muted/70" aria-hidden="true" />
-              设备信息仅管理员可见。
-            </div>
-          ) : devicesLoading ? (
+          {devicesLoading ? (
             <TableWrapper className="rounded-none border-0">
               <TableSkeleton rows={3} columns={5} />
             </TableWrapper>
@@ -854,7 +1073,11 @@ export function ElderDetailClient() {
           ) : devices.length === 0 ? (
             <EmptyState
               title="暂无绑定设备"
-              description="前往设备管理页面注册并绑定监护终端。"
+              description={
+                isAdmin
+                  ? "前往设备管理页面注册并绑定监护终端。"
+                  : "当前老人还没有绑定设备，请联系管理员完成绑定。"
+              }
             />
           ) : (
             <TableWrapper className="rounded-none border-0">

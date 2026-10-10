@@ -90,4 +90,39 @@ test.describe("老人档案与联系人", () => {
     await expect(page.getByText("演示老人-张奶奶")).toBeVisible();
     await expect(page.getByText(/E2E老人-/)).toHaveCount(0);
   });
+
+  test("admin 在老人详情看到并管理监护成员面板", async ({ page }) => {
+    await login(page, ADMIN);
+    await page.goto("/elders/");
+    await page
+      .getByRole("row")
+      .filter({ hasText: "演示老人-张奶奶" })
+      .getByRole("button", { name: "查看详情" })
+      .click();
+    await expect(page).toHaveURL(/\/elders\/detail\/?\?id=\d+/);
+
+    const panel = page.locator("section").filter({ hasText: "监护成员" });
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("family", { exact: true })).toBeVisible();
+    await expect(panel.getByRole("button", { name: "添加" })).toBeVisible();
+  });
+
+  test("family 在老人详情能看到绑定设备但看不到成员面板", async ({
+    page,
+  }) => {
+    await login(page, FAMILY);
+    await page.goto("/elders/");
+    await page
+      .getByRole("row")
+      .filter({ hasText: "演示老人-张奶奶" })
+      .getByRole("button", { name: "查看详情" })
+      .click();
+    await expect(page).toHaveURL(/\/elders\/detail\/?\?id=\d+/);
+
+    await expect(page.getByRole("heading", { name: "绑定设备" })).toBeVisible();
+    await expect(page.getByText("esp32-demo-0001")).toBeVisible();
+    await expect(
+      page.getByRole("heading", { name: "监护成员" })
+    ).toHaveCount(0);
+  });
 });

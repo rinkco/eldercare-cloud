@@ -133,3 +133,52 @@ def bind_device(
     db.commit()
     db.refresh(device)
     return device
+
+
+@router.post(
+    "/{device_id}/unbind",
+    response_model=DeviceOut,
+    summary="解绑设备（仅 admin）",
+    description=(
+        "把设备从当前老人解绑并清空 bound_at；未绑定设备返回 409。"
+        "解绑后设备仍保留历史遥测与事件，新的上行消息按未绑定丢弃。"
+    ),
+)
+def unbind_device(
+    device_id: int,
+    request: Request,
+    user: User = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> Device:
+    device = db.execute(
+        select(Device).where(Device.id == device_id).with_for_update()
+    ).scalar_one_or_none()
+    if device is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="设备不存在"
+        )
+    if device.elder_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail="设备未绑定老人"
+        )
+
+    previous_elder_id = device.elder_id
+    device.elder_id = None
+    device.bound_at = None
+
+    write_audit(
+        db,
+        user_id=user.id,
+        action="unbind_device",
+        target_type="device",
+        target_id=device.id,
+        ip=_client_ip(request),
+        detail={
+            "device_uid": device.device_uid,
+            "elder_id": previous_elder_id,
+            "reason": "manual",
+        },
+    )
+    db.commit()
+    db.refresh(device)
+    return device

@@ -81,9 +81,9 @@ services:
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123456}
       SEED_FAMILY_USERNAME: ${SEED_FAMILY_USERNAME:-family}
       SEED_FAMILY_PASSWORD: ${SEED_FAMILY_PASSWORD:-family123456}
-    # 宿主机端口可配置：规格默认 8080，若本机 8080 被占用可在 .env 中改 BACKEND_PORT
+    # 宿主机端口可配置：默认 18080（避开 Steam/Tomcat 常占用的 8080），可在 .env 中改 BACKEND_PORT
     ports:
-      - "${BACKEND_PORT:-8080}:8000"
+      - "${BACKEND_PORT:-18080}:8000"
     depends_on:
       postgres:
         condition: service_healthy
