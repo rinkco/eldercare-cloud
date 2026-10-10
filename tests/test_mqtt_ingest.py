@@ -186,6 +186,68 @@ def test_event_message_is_stored(client: TestClient, bound_device) -> None:
     assert row.payload_json == {"source": "mpu6050"}
 
 
+def test_telemetry_and_event_meta_are_stored(
+    client: TestClient, bound_device
+) -> None:
+    _, _, device, uid = bound_device
+    meta = {
+        "transport": "lora",
+        "gateway_eui": "lora-gw-0001",
+        "rssi": -87,
+        "snr": 8.5,
+        "sf": 7,
+        "freq": 470.3,
+    }
+
+    _publish(
+        f"iot/v1/{uid}/telemetry",
+        {
+            "device_uid": uid,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "metric": "heart_rate",
+            "value": 79,
+            "meta": meta,
+        },
+    )
+
+    def find_telemetry():
+        with SessionLocal() as session:
+            return session.execute(
+                select(Telemetry).where(
+                    Telemetry.device_id == device["id"],
+                    Telemetry.value_num == 79,
+                )
+            ).scalar_one_or_none()
+
+    telemetry_row = _wait_for(find_telemetry)
+    assert telemetry_row is not None
+    assert telemetry_row.meta_json == meta
+
+    _publish(
+        f"iot/v1/{uid}/event",
+        {
+            "device_uid": uid,
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "type": "sos",
+            "severity": "critical",
+            "payload": {"source": "lora-button"},
+            "meta": meta,
+        },
+    )
+
+    def find_event():
+        with SessionLocal() as session:
+            return session.execute(
+                select(Event).where(
+                    Event.device_id == device["id"], Event.type == "sos"
+                )
+            ).scalar_one_or_none()
+
+    event_row = _wait_for(find_event)
+    assert event_row is not None
+    assert event_row.meta_json == meta
+
+
 def test_invalid_metric_is_dropped(client: TestClient, bound_device) -> None:
     _, _, device, uid = bound_device
 

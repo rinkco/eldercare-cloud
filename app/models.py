@@ -117,7 +117,8 @@ class Device(Base):
     __tablename__ = "devices"
     __table_args__ = (
         CheckConstraint(
-            "kind IN ('esp32', 'phone', 'wearable')", name="ck_devices_kind"
+            "kind IN ('esp32', 'phone', 'wearable', 'lora_node')",
+            name="ck_devices_kind",
         ),
         CheckConstraint(
             "status IN ('online', 'offline', 'disabled')", name="ck_devices_status"
@@ -177,6 +178,9 @@ class Telemetry(Base):
     value_text: Mapped[str | None] = mapped_column(Text)
     lat: Mapped[float | None] = mapped_column(Float)
     lon: Mapped[float | None] = mapped_column(Float)
+    meta_json: Mapped[dict] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
 
 
@@ -208,6 +212,9 @@ class Event(Base):
     confidence: Mapped[float | None] = mapped_column(Float)
     occurred_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     payload_json: Mapped[dict] = mapped_column(
+        JSONB, server_default=text("'{}'::jsonb")
+    )
+    meta_json: Mapped[dict] = mapped_column(
         JSONB, server_default=text("'{}'::jsonb")
     )
     status: Mapped[str] = mapped_column(String(16), server_default=text("'new'"))

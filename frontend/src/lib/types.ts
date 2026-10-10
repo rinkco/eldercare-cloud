@@ -110,6 +110,7 @@ export interface Telemetry {
   value_text: string | null;
   lat: number | null;
   lon: number | null;
+  meta_json: Record<string, unknown>;
   recorded_at: string;
 }
 
@@ -142,6 +143,7 @@ export interface EventRecord {
   confidence: number | null;
   occurred_at: string;
   payload_json: Record<string, unknown>;
+  meta_json: Record<string, unknown>;
   status: string;
 }
 
@@ -188,6 +190,7 @@ export interface RealtimeTelemetry {
   value_text: string | null;
   lat: number | null;
   lon: number | null;
+  meta_json?: Record<string, unknown>;
   recorded_at: string;
 }
 

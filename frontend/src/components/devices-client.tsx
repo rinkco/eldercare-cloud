@@ -46,6 +46,7 @@ const DEVICE_KIND_OPTIONS = [
   { value: "esp32", label: "ESP32 终端" },
   { value: "phone", label: "手机" },
   { value: "wearable", label: "穿戴设备" },
+  { value: "lora_node", label: "LoRa 节点" },
 ];
 
 function validateDeviceUid(value: string): string | null {

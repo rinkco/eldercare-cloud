@@ -124,6 +124,7 @@ def _handle_telemetry(device_uid: str, data: dict) -> None:
                 Telemetry.value_text.is_not_distinct_from(message.value_text),
                 Telemetry.lat.is_not_distinct_from(message.lat),
                 Telemetry.lon.is_not_distinct_from(message.lon),
+                Telemetry.meta_json == message.meta,
             )
         ).first()
         if duplicate is not None:
@@ -165,6 +166,7 @@ def _handle_telemetry(device_uid: str, data: dict) -> None:
                 value_text=message.value_text,
                 lat=message.lat,
                 lon=message.lon,
+                meta_json=message.meta,
                 recorded_at=message.recorded_at,
             )
         )
@@ -182,6 +184,7 @@ def _handle_telemetry(device_uid: str, data: dict) -> None:
             value_text=message.value_text,
             lat=message.lat,
             lon=message.lon,
+            meta=message.meta,
             recorded_at=message.recorded_at,
         )
         _publish_rule_events(db, rule_events)
@@ -206,6 +209,7 @@ def _handle_event(device_uid: str, data: dict) -> None:
                 Event.occurred_at == message.occurred_at,
                 Event.confidence.is_not_distinct_from(message.confidence),
                 Event.payload_json == message.payload,
+                Event.meta_json == message.meta,
             )
         ).first()
         if duplicate is not None:
@@ -222,6 +226,7 @@ def _handle_event(device_uid: str, data: dict) -> None:
             confidence=message.confidence,
             occurred_at=message.occurred_at,
             payload_json=message.payload,
+            meta_json=message.meta,
         )
         db.add(event)
         db.flush()

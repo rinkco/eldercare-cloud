@@ -91,6 +91,7 @@ export const DEVICE_KIND_LABELS: Record<string, string> = {
   esp32: "ESP32 终端",
   phone: "手机",
   wearable: "穿戴设备",
+  lora_node: "LoRa 节点",
 };
 
 export function labelOf(

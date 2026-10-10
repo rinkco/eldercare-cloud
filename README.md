@@ -111,6 +111,23 @@ asyncio.run(main())
 "@
 ```
 
+## LoRa 接入（节点 → 网关 → 云平台）
+
+LoRa 节点经网关与 LoRaWAN 网络服务器（ChirpStack / RAK 内置 NS）汇聚后，
+由桥接脚本归一化为平台 MQTT 契约，复用现有告警与实时链路：
+
+```powershell
+# 终端 1：启动桥接（订阅网络服务器上行）
+docker compose exec backend python -m scripts.lora_gateway_bridge
+
+# 终端 2：无硬件模拟 LoRa 节点 + 网关
+docker compose exec backend python -m scripts.simulate_lora_node --scenario fall
+```
+
+设备注册时 `kind` 选 `lora_node`，`device_uid` 与 devEui 一致（或用
+`LORA_UID_PREFIX` 配置前缀）。完整配置、节点载荷格式与排障见
+[docs/lora-integration.md](docs/lora-integration.md)。
+
 ## 前端开发模式
 
 容器方式已经包含前端构建；需要热更新调试时在宿主机运行：

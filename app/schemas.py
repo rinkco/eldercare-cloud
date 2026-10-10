@@ -222,7 +222,7 @@ class DeviceCreate(BaseModel):
     device_uid: str = Field(
         min_length=1, max_length=64, pattern=r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$"
     )
-    kind: Literal["esp32", "phone", "wearable"]
+    kind: Literal["esp32", "phone", "wearable", "lora_node"]
     model: str | None = Field(default=None, max_length=64)
 
 
@@ -288,6 +288,7 @@ class TelemetryOut(BaseModel):
     value_text: str | None = None
     lat: float | None = None
     lon: float | None = None
+    meta_json: dict = Field(default_factory=dict)
     recorded_at: datetime
 
 
@@ -302,6 +303,7 @@ class EventOut(BaseModel):
     confidence: float | None = None
     occurred_at: datetime
     payload_json: dict
+    meta_json: dict = Field(default_factory=dict)
     status: str
 
 

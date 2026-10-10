@@ -76,6 +76,13 @@ services:
       MQTT_PASSWORD: ${MQTT_PASSWORD:?请在 .env 中配置 MQTT_PASSWORD}
       MQTT_HOST: mosquitto
       MQTT_PORT: "1883"
+      # LoRa 桥接：默认订阅 ChirpStack v4 上行；源 Broker 凭据留空时复用平台 MQTT 账号
+      LORA_TOPIC: ${LORA_TOPIC:-application/+/device/+/event/up}
+      LORA_UID_PREFIX: ${LORA_UID_PREFIX:-}
+      LORA_SOURCE_MQTT_HOST: ${LORA_SOURCE_MQTT_HOST:-mosquitto}
+      LORA_SOURCE_MQTT_PORT: ${LORA_SOURCE_MQTT_PORT:-1883}
+      LORA_SOURCE_MQTT_USER: ${LORA_SOURCE_MQTT_USER:-}
+      LORA_SOURCE_MQTT_PASSWORD: ${LORA_SOURCE_MQTT_PASSWORD:-}
       JWT_SECRET: ${JWT_SECRET:?请在 .env 中配置 JWT_SECRET}
       SEED_ADMIN_USERNAME: ${SEED_ADMIN_USERNAME:-admin}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-admin123456}

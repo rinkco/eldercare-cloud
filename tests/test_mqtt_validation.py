@@ -144,3 +144,49 @@ def test_parse_status_rejects_bad_battery() -> None:
         parse_status({"battery": 101, "ts": TS})
     with pytest.raises(PayloadError):
         parse_status({"battery": "full", "ts": TS})
+
+
+def test_parse_telemetry_meta_object() -> None:
+    message = parse_telemetry(
+        {
+            "metric": "heart_rate",
+            "value": 78,
+            "ts": TS,
+            "meta": {"transport": "lora", "rssi": -87, "snr": 8.5},
+        }
+    )
+
+    assert message.meta == {
+        "transport": "lora",
+        "rssi": -87,
+        "snr": 8.5,
+    }
+
+
+def test_parse_telemetry_rejects_non_object_meta() -> None:
+    with pytest.raises(PayloadError):
+        parse_telemetry(
+            {
+                "metric": "heart_rate",
+                "value": 78,
+                "ts": TS,
+                "meta": "lora",
+            }
+        )
+
+
+def test_parse_event_meta_object() -> None:
+    message = parse_event(
+        {
+            "type": "fall",
+            "severity": "critical",
+            "ts": TS,
+            "meta": {"transport": "lora", "gateway_eui": "lora-gw-0001"},
+        }
+    )
+
+    assert message.meta == {
+        "transport": "lora",
+        "gateway_eui": "lora-gw-0001",
+    }
+    assert message.payload == {}

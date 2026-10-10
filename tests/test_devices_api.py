@@ -329,3 +329,26 @@ def test_unbind_device_flow(client: TestClient, db, seeded_users) -> None:
         assert "unbind_device" in actions
     finally:
         _cleanup(db, [device["id"]], [elder_one["id"], elder_two["id"]])
+
+
+def test_lora_node_kind_is_accepted(
+    client: TestClient, db, seeded_users
+) -> None:
+    token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    response = client.post(
+        "/api/v1/devices",
+        headers=_headers(token),
+        json={
+            "device_uid": f"lora-{uuid.uuid4().hex[:10]}",
+            "kind": "lora_node",
+        },
+    )
+
+    assert response.status_code == 201
+    body = response.json()
+    try:
+        assert body["kind"] == "lora_node"
+    finally:
+        _cleanup(db, [body["id"]], [])

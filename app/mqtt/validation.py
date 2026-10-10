@@ -35,6 +35,7 @@ class TelemetryMessage:
     lat: float | None
     lon: float | None
     recorded_at: datetime
+    meta: dict
 
 
 @dataclass(frozen=True)
@@ -44,6 +45,7 @@ class EventMessage:
     confidence: float | None
     occurred_at: datetime
     payload: dict
+    meta: dict
 
 
 @dataclass(frozen=True)
@@ -132,6 +134,7 @@ def parse_telemetry(data: dict) -> TelemetryMessage:
         lat=lat,
         lon=lon,
         recorded_at=parse_timestamp(data.get("ts")),
+        meta=_object(data, "meta"),
     )
 
 
@@ -164,6 +167,7 @@ def parse_event(data: dict) -> EventMessage:
         confidence=float(confidence) if confidence is not None else None,
         occurred_at=parse_timestamp(data.get("ts")),
         payload=payload,
+        meta=_object(data, "meta"),
     )
 
 
@@ -213,6 +217,14 @@ def _number(
     if maximum is not None and number > maximum:
         raise PayloadError(f"{key} 不能大于 {maximum}")
     return number
+
+
+def _object(data: dict, key: str) -> dict:
+    """可选对象字段：省略返回 {}，出现时必须是非 null 对象。"""
+    value = data.get(key, {})
+    if not isinstance(value, dict):
+        raise PayloadError(f"{key} 必须是对象")
+    return value
 
 
 def _reject_constant(value: str) -> float:

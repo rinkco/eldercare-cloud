@@ -497,6 +497,17 @@ export function EventsClient() {
                   {JSON.stringify(detailEvent.payload_json ?? {}, null, 2)}
                 </pre>
               </div>
+
+              {Object.keys(detailEvent.meta_json ?? {}).length > 0 ? (
+                <div>
+                  <p className="text-[12px] text-ink-muted">
+                    网络元数据（LoRa 网关）
+                  </p>
+                  <pre className="mt-2 max-h-48 overflow-auto rounded-[6px] border border-line bg-raised px-3 py-2.5 text-[12px] leading-5 text-ink">
+                    {JSON.stringify(detailEvent.meta_json, null, 2)}
+                  </pre>
+                </div>
+              ) : null}
             </div>
           ) : null}
         </DialogContent>

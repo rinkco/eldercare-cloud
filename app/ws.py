@@ -238,6 +238,7 @@ def publish_telemetry(
     value_text: str | None,
     lat: float | None,
     lon: float | None,
+    meta: dict | None = None,
     recorded_at,
 ) -> None:
     hub.publish_threadsafe(
@@ -251,6 +252,7 @@ def publish_telemetry(
                 "value_text": value_text,
                 "lat": lat,
                 "lon": lon,
+                "meta_json": meta or {},
                 "recorded_at": recorded_at.isoformat(),
             },
         },

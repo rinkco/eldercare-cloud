@@ -163,6 +163,14 @@ function telemetryLocation(item: Telemetry): string {
   return `${item.lat.toFixed(5)}, ${item.lon.toFixed(5)}`;
 }
 
+function telemetrySignal(item: Telemetry): string {
+  const meta = item.meta_json ?? {};
+  const parts: string[] = [];
+  if (typeof meta.rssi === "number") parts.push(`${meta.rssi} dBm`);
+  if (typeof meta.snr === "number") parts.push(`${meta.snr} dB`);
+  return parts.join(" / ") || "—";
+}
+
 function contactDraftFromContact(
   contact: Contact,
   rowId: string
@@ -1139,7 +1147,7 @@ export function ElderDetailClient() {
         />
         {telemetryLoading ? (
           <TableWrapper className="rounded-none border-0">
-            <TableSkeleton rows={5} columns={4} />
+            <TableSkeleton rows={5} columns={5} />
           </TableWrapper>
         ) : telemetryError ? (
           <ErrorState
@@ -1160,6 +1168,7 @@ export function ElderDetailClient() {
                   <TH>指标</TH>
                   <TH>数值</TH>
                   <TH>经纬度</TH>
+                  <TH>信号</TH>
                 </TR>
               </THead>
               <TBody>
@@ -1172,6 +1181,9 @@ export function ElderDetailClient() {
                     <TD className="tabular-nums">{telemetryValue(item)}</TD>
                     <TD className="whitespace-nowrap tabular-nums text-ink-muted">
                       {telemetryLocation(item)}
+                    </TD>
+                    <TD className="whitespace-nowrap tabular-nums text-ink-muted">
+                      {telemetrySignal(item)}
                     </TD>
                   </TR>
                 ))}
