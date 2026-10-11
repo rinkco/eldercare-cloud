@@ -11,8 +11,8 @@ from sqlalchemy.orm import Session
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import require_roles
-from app.models import User
-from app.schemas import UserOut, UserUpdate
+from app.models import Elder, ElderAccess, User
+from app.schemas import UserElderOut, UserOut, UserUpdate
 from app.security import hash_password
 
 router = APIRouter(prefix="/api/v1/users", tags=["用户管理"])
@@ -28,6 +28,58 @@ def list_users(
 ) -> list[User]:
     """管理员查看全部账号。"""
     return list(db.execute(select(User).order_by(User.id)).scalars())
+
+
+@router.get(
+    "/{user_id}/elders",
+    response_model=list[UserElderOut],
+    summary="账号关联的老人（仅 admin）",
+    description=(
+        "用户列表「监护关系」列与抽屉的数据来源：返回该账号关联的全部老人"
+        "及其成员角色，按 elder_id 升序；admin 账号通常返回空数组。"
+    ),
+    responses={
+        403: {
+            "description": "非 admin 调用",
+            "content": {"application/json": {"example": {"detail": "权限不足"}}},
+        },
+        404: {
+            "description": "用户不存在",
+            "content": {
+                "application/json": {"example": {"detail": "用户不存在"}}
+            },
+        },
+    },
+)
+def list_user_elders(
+    user_id: int,
+    _: User = Depends(require_roles("admin")),
+    db: Session = Depends(get_db),
+) -> list[UserElderOut]:
+    """管理员查看某账号的监护关系（先校验 admin 权限，再校验账号存在）。"""
+    exists = db.execute(select(User.id).where(User.id == user_id)).first()
+    if exists is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="用户不存在"
+        )
+
+    rows = db.execute(
+        select(
+            ElderAccess.elder_id,
+            Elder.name,
+            ElderAccess.role,
+            ElderAccess.relation,
+        )
+        .join(Elder, Elder.id == ElderAccess.elder_id)
+        .where(ElderAccess.user_id == user_id)
+        .order_by(ElderAccess.elder_id)
+    ).all()
+    return [
+        UserElderOut(
+            elder_id=elder_id, name=name, role=role, relation=relation
+        )
+        for elder_id, name, role, relation in rows
+    ]
 
 
 @router.patch(

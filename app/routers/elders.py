@@ -1,15 +1,24 @@
 """老人档案与紧急联系人接口。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
-from sqlalchemy import delete, select
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    status,
+)
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import get_elder_for_user, require_elder_role
+from app.access import get_elder_for_user, get_elder_role, require_elder_role
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import get_current_user, require_roles
 from app.models import Device, Elder, ElderAccess, ElderContact, User
 from app.schemas import (
+    AccessCandidateOut,
     AccessMemberIn,
     AccessMemberOut,
     ContactIn,
@@ -22,9 +31,17 @@ from app.schemas import (
 
 router = APIRouter(prefix="/api/v1/elders", tags=["老人档案"])
 
+# 候选家属检索最多返回的条数
+CANDIDATE_LIMIT = 10
+
 
 def _client_ip(request) -> str | None:
     return request.client.host if request.client else None
+
+
+def _escape_like(value: str) -> str:
+    """转义 LIKE 通配符，让关键字按字面量做包含匹配。"""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 @router.get("", response_model=list[ElderOut], summary="老人列表（admin / family）")
@@ -34,16 +51,22 @@ def list_elders(
 ) -> list[Elder]:
     """admin 返回全部；family 只返回已关联的老人。"""
     if user.role == "admin":
-        return list(db.execute(select(Elder).order_by(Elder.id)).scalars())
+        elders = list(db.execute(select(Elder).order_by(Elder.id)).scalars())
+        for elder in elders:
+            elder.my_role = "admin"
+        return elders
 
-    return list(
-        db.execute(
-            select(Elder)
-            .join(ElderAccess, ElderAccess.elder_id == Elder.id)
-            .where(ElderAccess.user_id == user.id)
-            .order_by(Elder.id)
-        ).scalars()
-    )
+    rows = db.execute(
+        select(Elder, ElderAccess.role)
+        .join(ElderAccess, ElderAccess.elder_id == Elder.id)
+        .where(ElderAccess.user_id == user.id)
+        .order_by(Elder.id)
+    ).all()
+    elders = []
+    for elder, role in rows:
+        elder.my_role = role
+        elders.append(elder)
+    return elders
 
 
 @router.post(
@@ -84,6 +107,8 @@ def create_elder(
     )
     db.commit()
     db.refresh(elder)
+    # 响应里带上调用者角色：family 创建者自动成为 owner
+    elder.my_role = "owner" if user.role == "family" else "admin"
     return elder
 
 
@@ -93,7 +118,10 @@ def get_elder(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Elder:
-    return get_elder_for_user(db, user, elder_id)
+    elder = get_elder_for_user(db, user, elder_id)
+    # 可见性已由 get_elder_for_user 保证；admin 固定 admin，family 取成员角色
+    elder.my_role = get_elder_role(db, user, elder_id) or "member"
+    return elder
 
 
 @router.put(
@@ -126,6 +154,7 @@ def update_elder(
     )
     db.commit()
     db.refresh(elder)
+    elder.my_role = get_elder_role(db, user, elder_id) or "member"
     return elder
 
 
@@ -368,6 +397,55 @@ def replace_elder_access(
     )
     db.commit()
     return _access_rows(db, elder_id)
+
+
+@router.get(
+    "/{elder_id}/access/candidates",
+    response_model=list[AccessCandidateOut],
+    summary="候选家属账号检索（admin / owner）",
+    description=(
+        "管理员或该老人的主照护者检索可添加的家属账号：q 必填 1-32 字符，"
+        "对账号与显示名做大小写不敏感的包含匹配；仅返回全局角色为 family "
+        "且尚未关联该老人的账号，按账号 ID 升序，最多 10 条。"
+    ),
+)
+def search_access_candidates(
+    elder_id: int,
+    q: str = Query(
+        min_length=1, max_length=32, description="账号或显示名关键字"
+    ),
+    user: User = Depends(require_roles("admin", "family")),
+    db: Session = Depends(get_db),
+) -> list[AccessCandidateOut]:
+    """admin 或该老人的 owner 按关键字检索候选家属账号。"""
+    require_elder_role(db, user, elder_id, ("admin", "owner"))
+
+    pattern = f"%{_escape_like(q)}%"
+    candidates = db.execute(
+        select(User)
+        .where(
+            User.role == "family",
+            or_(
+                User.username.ilike(pattern, escape="\\"),
+                User.display_name.ilike(pattern, escape="\\"),
+            ),
+            User.id.not_in(
+                select(ElderAccess.user_id).where(
+                    ElderAccess.elder_id == elder_id
+                )
+            ),
+        )
+        .order_by(User.id)
+        .limit(CANDIDATE_LIMIT)
+    ).scalars()
+    return [
+        AccessCandidateOut(
+            id=candidate.id,
+            username=candidate.username,
+            display_name=candidate.display_name,
+        )
+        for candidate in candidates
+    ]
 
 
 @router.get(

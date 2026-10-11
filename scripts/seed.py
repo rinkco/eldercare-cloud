@@ -6,6 +6,8 @@
 账号默认值可用环境变量覆盖：
     SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD
     SEED_FAMILY_USERNAME / SEED_FAMILY_PASSWORD
+    SEED_OWNER_USERNAME / SEED_OWNER_PASSWORD（演示老人的主照护者）
+    SEED_GUEST_USERNAME / SEED_GUEST_PASSWORD（未关联任何老人的候选家属账号）
 """
 
 import os
@@ -30,6 +32,10 @@ ADMIN_USERNAME = os.getenv("SEED_ADMIN_USERNAME", "admin")
 ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD", "admin123456")
 FAMILY_USERNAME = os.getenv("SEED_FAMILY_USERNAME", "family")
 FAMILY_PASSWORD = os.getenv("SEED_FAMILY_PASSWORD", "family123456")
+OWNER_USERNAME = os.getenv("SEED_OWNER_USERNAME", "family-owner")
+OWNER_PASSWORD = os.getenv("SEED_OWNER_PASSWORD", "owner123456")
+GUEST_USERNAME = os.getenv("SEED_GUEST_USERNAME", "family-guest")
+GUEST_PASSWORD = os.getenv("SEED_GUEST_PASSWORD", "guest123456")
 DEMO_ELDER_NAME = "演示老人-张奶奶"
 DEMO_DEVICE_UID = "esp32-demo-0001"
 
@@ -76,17 +82,28 @@ def _get_or_create_elder(db: Session) -> Elder:
     return elder
 
 
-def _ensure_family_access(db: Session, elder: Elder, family: User) -> None:
-    exists = db.execute(
-        select(ElderAccess.id).where(
+def _ensure_access(
+    db: Session, elder: Elder, user: User, role: str, relation: str
+) -> None:
+    """显式写入老人-账号监护关系；重复执行时把 role/relation 收敛为配置值。"""
+    access = db.execute(
+        select(ElderAccess).where(
             ElderAccess.elder_id == elder.id,
-            ElderAccess.user_id == family.id,
+            ElderAccess.user_id == user.id,
         )
-    ).first()
-    if exists is None:
+    ).scalar_one_or_none()
+    if access is None:
         db.add(
-            ElderAccess(elder_id=elder.id, user_id=family.id, relation="daughter")
+            ElderAccess(
+                elder_id=elder.id,
+                user_id=user.id,
+                role=role,
+                relation=relation,
+            )
         )
+        return
+    access.role = role
+    access.relation = relation
 
 
 def _ensure_contacts(db: Session, elder: Elder) -> None:
@@ -214,8 +231,16 @@ def main() -> None:
         family = _get_or_create_user(
             db, FAMILY_USERNAME, FAMILY_PASSWORD, "family", "演示家属"
         )
+        owner = _get_or_create_user(
+            db, OWNER_USERNAME, OWNER_PASSWORD, "family", "演示主照护者"
+        )
+        _get_or_create_user(
+            db, GUEST_USERNAME, GUEST_PASSWORD, "family", "演示候选家属"
+        )
         elder = _get_or_create_elder(db)
-        _ensure_family_access(db, elder, family)
+        # family 固定为普通成员，family-owner 为主照护者（重跑时收敛既有数据）
+        _ensure_access(db, elder, family, "member", "daughter")
+        _ensure_access(db, elder, owner, "owner", "son")
         _ensure_contacts(db, elder)
         _ensure_geofence(db, elder)
         device = _ensure_device(db, elder)
@@ -224,7 +249,9 @@ def main() -> None:
 
     print("种子数据就绪：")
     print(f"  管理员：{ADMIN_USERNAME} / {ADMIN_PASSWORD}")
-    print(f"  家属：  {FAMILY_USERNAME} / {FAMILY_PASSWORD}")
+    print(f"  家属（普通成员）：{FAMILY_USERNAME} / {FAMILY_PASSWORD}")
+    print(f"  家属（主照护者）：{OWNER_USERNAME} / {OWNER_PASSWORD}")
+    print(f"  候选家属（未关联老人）：{GUEST_USERNAME} / {GUEST_PASSWORD}")
     print(f"  老人：  {DEMO_ELDER_NAME}（id={elder.id}）")
     print(f"  设备：  {DEMO_DEVICE_UID}（id={device.id}）")
     print(f"  遥测：  本次新增 {telemetry_rows} 条（已存在则跳过）")

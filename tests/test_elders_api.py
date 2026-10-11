@@ -49,13 +49,13 @@ def _cleanup_elders(db, elder_ids: list[int]) -> None:
     session.commit()
 
 
-def _create_family_user(db) -> User:
+def _create_family_user(db, display_name: str = "额外家属") -> User:
     session, _ = db
     user = User(
         username=f"t-extra-{uuid.uuid4().hex[:8]}",
         password_hash=hash_password(EXTRA_FAMILY_PASSWORD),
         role="family",
-        display_name="额外家属",
+        display_name=display_name,
     )
     session.add(user)
     session.commit()
@@ -182,6 +182,85 @@ def test_family_creator_gets_access(
         assert detail.status_code == 200
     finally:
         _cleanup_elders(db, [elder["id"]])
+
+
+def test_elder_responses_include_my_role(
+    client: TestClient, db, seeded_users
+) -> None:
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    admin_elder = _create_elder(client, admin_token, "角色测试-管理员创建")
+    family_elder = _create_elder(client, family_token, "角色测试-家属创建")
+    elder_ids = [admin_elder["id"], family_elder["id"]]
+    other = _create_family_user(db)
+
+    try:
+        # 创建者视角
+        assert admin_elder["my_role"] == "admin"
+        assert family_elder["my_role"] == "owner"
+
+        # admin 列表：全部为 admin
+        admin_listing = client.get("/api/v1/elders", headers=_headers(admin_token))
+        assert admin_listing.status_code == 200
+        admin_roles = {
+            item["id"]: item["my_role"] for item in admin_listing.json()
+        }
+        assert admin_roles[admin_elder["id"]] == "admin"
+        assert admin_roles[family_elder["id"]] == "admin"
+
+        # family 列表：仅关联老人，角色 owner
+        family_listing = client.get(
+            "/api/v1/elders", headers=_headers(family_token)
+        )
+        assert family_listing.status_code == 200
+        assert {
+            item["id"]: item["my_role"] for item in family_listing.json()
+        } == {family_elder["id"]: "owner"}
+
+        # 额外家属以 member 授权后，列表与详情的角色应为 member
+        granted = client.put(
+            f"/api/v1/elders/{family_elder['id']}/access",
+            headers=_headers(admin_token),
+            json=[
+                {"user_id": seeded_users.family.id, "role": "owner"},
+                {"user_id": other.id, "role": "member"},
+            ],
+        )
+        assert granted.status_code == 200
+        other_token = _login(client, other.username, EXTRA_FAMILY_PASSWORD)
+
+        other_listing = client.get(
+            "/api/v1/elders", headers=_headers(other_token)
+        )
+        assert {
+            item["id"]: item["my_role"] for item in other_listing.json()
+        } == {family_elder["id"]: "member"}
+
+        other_detail = client.get(
+            f"/api/v1/elders/{family_elder['id']}", headers=_headers(other_token)
+        )
+        assert other_detail.status_code == 200
+        assert other_detail.json()["my_role"] == "member"
+
+        # owner 的详情与更新响应
+        owner_detail = client.get(
+            f"/api/v1/elders/{family_elder['id']}", headers=_headers(family_token)
+        )
+        assert owner_detail.json()["my_role"] == "owner"
+        updated = client.put(
+            f"/api/v1/elders/{family_elder['id']}",
+            headers=_headers(family_token),
+            json={"address": "角色测试地址"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["my_role"] == "owner"
+    finally:
+        _cleanup_elders(db, elder_ids)
+        _delete_user(db, other.id)
 
 
 def test_contacts_replace_flow(client: TestClient, db, seeded_users) -> None:
@@ -582,3 +661,135 @@ def test_family_reads_bound_devices_readonly(
             session.execute(delete(Device).where(Device.id == device["id"]))
             session.commit()
         _cleanup_elders(db, [elder_id])
+
+
+def test_access_candidates_search(
+    client: TestClient, db, seeded_users
+) -> None:
+    """SPEC 03 步骤 3：候选家属检索的鉴权、匹配、排除与参数边界。"""
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    )
+    elder = _create_elder(client, family_token, "候选检索老人")
+    elder_id = elder["id"]
+    # 关键字带随机后缀，避免与 seed 演示账号的显示名碰撞
+    tag = f"cs{uuid.uuid4().hex[:6]}"
+    first = _create_family_user(db, display_name=f"候选家属甲-{tag}")
+    second = _create_family_user(db, display_name=f"候选家属乙-{tag}")
+    url = f"/api/v1/elders/{elder_id}/access/candidates"
+
+    try:
+        # owner（老人创建者）按显示名包含匹配，按 ID 升序，字段只有三个
+        by_name = client.get(
+            url, headers=_headers(family_token), params={"q": tag}
+        )
+        assert by_name.status_code == 200
+        assert [item["id"] for item in by_name.json()] == sorted(
+            [first.id, second.id]
+        )
+        assert set(by_name.json()[0]) == {"id", "username", "display_name"}
+        assert by_name.json()[0]["display_name"] == f"候选家属甲-{tag}"
+
+        # admin 也可检索；账号匹配大小写不敏感
+        by_username = client.get(
+            url,
+            headers=_headers(admin_token),
+            params={"q": first.username.upper()},
+        )
+        assert by_username.status_code == 200
+        assert [item["id"] for item in by_username.json()] == [first.id]
+
+        # 仅返回全局角色 family：admin 账号不会被搜到
+        admin_probe = client.get(
+            url,
+            headers=_headers(admin_token),
+            params={"q": seeded_users.admin.username.upper()},
+        )
+        assert admin_probe.status_code == 200
+        assert admin_probe.json() == []
+
+        # 排除已是该老人成员的账号
+        granted = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+            json=[
+                {"user_id": seeded_users.family.id, "role": "owner"},
+                {"user_id": first.id, "role": "member"},
+            ],
+        )
+        assert granted.status_code == 200
+        after_grant = client.get(
+            url, headers=_headers(family_token), params={"q": tag}
+        )
+        assert [item["id"] for item in after_grant.json()] == [second.id]
+
+        # member 与未关联家属均 403（member 不发请求可搜；未关联家属看不到老人）
+        member_token = _login(client, first.username, EXTRA_FAMILY_PASSWORD)
+        assert (
+            client.get(
+                url, headers=_headers(member_token), params={"q": tag}
+            ).status_code
+            == 403
+        )
+        stranger_token = _login(client, second.username, EXTRA_FAMILY_PASSWORD)
+        assert (
+            client.get(
+                url, headers=_headers(stranger_token), params={"q": tag}
+            ).status_code
+            == 403
+        )
+
+        # q 边界：空串、缺失、超 32 字符均 422
+        assert (
+            client.get(
+                url, headers=_headers(admin_token), params={"q": ""}
+            ).status_code
+            == 422
+        )
+        assert (
+            client.get(url, headers=_headers(admin_token)).status_code == 422
+        )
+        assert (
+            client.get(
+                url, headers=_headers(admin_token), params={"q": "x" * 33}
+            ).status_code
+            == 422
+        )
+    finally:
+        _cleanup_elders(db, [elder_id])
+        _delete_user(db, first.id)
+        _delete_user(db, second.id)
+
+
+def test_access_candidates_limit_ten(
+    client: TestClient, db, seeded_users
+) -> None:
+    """候选检索最多返回 10 条，且按账号 ID 升序。"""
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    )
+    elder = _create_elder(client, admin_token, "候选上限老人")
+    tag = f"limit{uuid.uuid4().hex[:6]}"
+    created = [
+        _create_family_user(db, display_name=f"上限候选-{tag}")
+        for _ in range(12)
+    ]
+
+    try:
+        response = client.get(
+            f"/api/v1/elders/{elder['id']}/access/candidates",
+            headers=_headers(admin_token),
+            params={"q": tag},
+        )
+        assert response.status_code == 200
+        ids = [item["id"] for item in response.json()]
+        assert len(ids) == 10
+        assert ids == sorted(ids)
+        assert ids == sorted(user.id for user in created)[:10]
+    finally:
+        _cleanup_elders(db, [elder["id"]])
+        for user in created:
+            _delete_user(db, user.id)

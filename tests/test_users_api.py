@@ -9,9 +9,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
-from app.models import AuditLog, User
+from app.models import AuditLog, Elder, ElderAccess, User
+from app.security import hash_password
 
 REGISTER_PASSWORD = "register-pass-123"
+EXTRA_FAMILY_PASSWORD = "extra-family-pass-123"
 
 
 @pytest.fixture
@@ -47,6 +49,51 @@ def _login(client: TestClient, username: str, password: str):
 
 def _bearer(token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {token}"}
+
+
+def _create_family_user(db, display_name: str = "额外家属") -> User:
+    """直接建号（跳过注册接口），用于构造监护关系数据。"""
+    session, _ = db
+    user = User(
+        username=f"t-extra-{uuid.uuid4().hex[:8]}",
+        password_hash=hash_password(EXTRA_FAMILY_PASSWORD),
+        role="family",
+        display_name=display_name,
+    )
+    session.add(user)
+    session.commit()
+    return user
+
+
+def _create_elder_with_members(
+    db, name: str, members: list[tuple[int, str, str | None]]
+) -> int:
+    """建测试老人并写入监护成员，返回老人 ID。"""
+    session, _ = db
+    elder = Elder(name=name)
+    session.add(elder)
+    session.flush()
+    session.add_all(
+        ElderAccess(
+            elder_id=elder.id, user_id=user_id, role=role, relation=relation
+        )
+        for user_id, role, relation in members
+    )
+    session.commit()
+    return elder.id
+
+
+def _delete_elder(db, elder_id: int) -> None:
+    session, _ = db
+    session.execute(delete(Elder).where(Elder.id == elder_id))
+    session.commit()
+
+
+def _delete_user(db, user_id: int) -> None:
+    session, _ = db
+    session.execute(delete(AuditLog).where(AuditLog.user_id == user_id))
+    session.execute(delete(User).where(User.id == user_id))
+    session.commit()
 
 
 def test_register_creates_family_account_and_login_works(
@@ -175,3 +222,95 @@ def test_update_unknown_user_returns_404(
     )
 
     assert response.status_code == 404
+
+
+def test_admin_reads_user_elder_links(
+    client: TestClient, db, seeded_users
+) -> None:
+    """SPEC 03 步骤 2：admin 查看账号监护关系。"""
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    ).json()["access_token"]
+    owner = seeded_users.family
+    member = _create_family_user(db)
+    elder_id = _create_elder_with_members(
+        db,
+        "监护关系测试老人",
+        [(owner.id, "owner", "daughter"), (member.id, "member", None)],
+    )
+
+    try:
+        response = client.get(
+            f"/api/v1/users/{owner.id}/elders", headers=_bearer(admin_token)
+        )
+        assert response.status_code == 200
+        assert response.json() == [
+            {
+                "elder_id": elder_id,
+                "name": "监护关系测试老人",
+                "role": "owner",
+                "relation": "daughter",
+            }
+        ]
+
+        # member 关联同样返回，relation 允许为空
+        member_response = client.get(
+            f"/api/v1/users/{member.id}/elders", headers=_bearer(admin_token)
+        )
+        assert member_response.status_code == 200
+        assert member_response.json() == [
+            {
+                "elder_id": elder_id,
+                "name": "监护关系测试老人",
+                "role": "member",
+                "relation": None,
+            }
+        ]
+
+        # admin 自身不写 elder_access，返回空数组
+        admin_self = client.get(
+            f"/api/v1/users/{seeded_users.admin.id}/elders",
+            headers=_bearer(admin_token),
+        )
+        assert admin_self.status_code == 200
+        assert admin_self.json() == []
+    finally:
+        _delete_elder(db, elder_id)
+        _delete_user(db, member.id)
+
+
+def test_user_elder_links_require_admin(
+    client: TestClient, db, seeded_users
+) -> None:
+    family_token = _login(
+        client, seeded_users.family.username, seeded_users.family_password
+    ).json()["access_token"]
+
+    response = client.get(
+        f"/api/v1/users/{seeded_users.family.id}/elders",
+        headers=_bearer(family_token),
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "权限不足"
+
+    # 鉴权先于账号存在性：family 查不存在的账号也返回 403 而不是 404
+    unknown = client.get(
+        "/api/v1/users/999999999/elders", headers=_bearer(family_token)
+    )
+    assert unknown.status_code == 403
+
+
+def test_user_elder_links_unknown_user_returns_404(
+    client: TestClient, seeded_users
+) -> None:
+    admin_token = _login(
+        client, seeded_users.admin.username, seeded_users.admin_password
+    ).json()["access_token"]
+
+    response = client.get(
+        "/api/v1/users/999999999/elders", headers=_bearer(admin_token)
+    )
+
+    assert response.status_code == 404
+    assert response.json()["detail"] == "用户不存在"

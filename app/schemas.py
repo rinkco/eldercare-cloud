@@ -172,6 +172,9 @@ class ElderOut(ElderCreate):
 
     id: int
     created_at: datetime
+    my_role: Literal["admin", "owner", "member"] = Field(
+        description="当前调用者在该老人上的角色：admin / owner / member"
+    )
 
 
 class ContactIn(BaseModel):
@@ -213,6 +216,25 @@ class AccessMemberOut(BaseModel):
     display_name: str | None = None
     role: str
     relation: str | None = None
+
+
+class UserElderOut(BaseModel):
+    """账号关联的老人（用户列表「监护关系」抽屉）。"""
+
+    elder_id: int = Field(description="老人 ID")
+    name: str = Field(description="老人姓名")
+    role: Literal["owner", "member"] = Field(
+        description="该账号在这位老人上的成员角色"
+    )
+    relation: str | None = Field(default=None, description="与老人的关系（只读展示）")
+
+
+class AccessCandidateOut(BaseModel):
+    """可作为监护成员添加的候选家属账号。"""
+
+    id: int = Field(description="账号 ID")
+    username: str = Field(description="账号")
+    display_name: str | None = Field(default=None, description="显示名")
 
 
 class DeviceCreate(BaseModel):
