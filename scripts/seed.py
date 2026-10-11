@@ -7,13 +7,14 @@
     SEED_ADMIN_USERNAME / SEED_ADMIN_PASSWORD
     SEED_FAMILY_USERNAME / SEED_FAMILY_PASSWORD
     SEED_OWNER_USERNAME / SEED_OWNER_PASSWORD（演示老人的主照护者）
-    SEED_GUEST_USERNAME / SEED_GUEST_PASSWORD（未关联任何老人的候选家属账号）
+    SEED_GUEST_USERNAME / SEED_GUEST_PASSWORD
+        （未关联任何老人的候选家属账号，重跑时清除其历史关联）
 """
 
 import os
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.db import SessionLocal
@@ -234,10 +235,13 @@ def main() -> None:
         owner = _get_or_create_user(
             db, OWNER_USERNAME, OWNER_PASSWORD, "family", "演示主照护者"
         )
-        _get_or_create_user(
+        guest = _get_or_create_user(
             db, GUEST_USERNAME, GUEST_PASSWORD, "family", "演示候选家属"
         )
         elder = _get_or_create_elder(db)
+        # 候选演示账号必须保持"未关联任何老人"：演示或 e2e 可能已把它加进老人，
+        # 这里先清掉它的历史关联，再收敛下面两行（顺序保证同名配置也不会互相破坏）
+        db.execute(delete(ElderAccess).where(ElderAccess.user_id == guest.id))
         # family 固定为普通成员，family-owner 为主照护者（重跑时收敛既有数据）
         _ensure_access(db, elder, family, "member", "daughter")
         _ensure_access(db, elder, owner, "owner", "son")
