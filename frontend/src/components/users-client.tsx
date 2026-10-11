@@ -1,14 +1,16 @@
 "use client";
 
-import { Pencil, RefreshCw, Users } from "lucide-react";
+import { Eye, Pencil, RefreshCw, Users } from "lucide-react";
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
+import { ElderRoleBadge } from "@/components/member-role-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { FieldError, Input, Label } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
+import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
   TBody,
@@ -21,7 +23,8 @@ import {
 } from "@/components/ui/table";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api";
-import type { UserOut } from "@/lib/types";
+import { RELATION_LABELS, labelOf } from "@/lib/format";
+import type { UserElder, UserOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const ROLE_LABELS: Record<string, string> = {
@@ -57,6 +60,11 @@ export function UsersClient() {
   const [editError, setEditError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
+  const [relationUser, setRelationUser] = useState<UserOut | null>(null);
+  const [relationElders, setRelationElders] = useState<UserElder[]>([]);
+  const [relationLoading, setRelationLoading] = useState(false);
+  const [relationError, setRelationError] = useState<string | null>(null);
+
   const load = useCallback(async () => {
     try {
       const data = await api.get<UserOut[]>("/api/v1/users");
@@ -73,6 +81,33 @@ export function UsersClient() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // 抽屉里的监护关系按账号维度拉取，关闭抽屉即取消请求
+  useEffect(() => {
+    if (relationUser === null) return;
+    const controller = new AbortController();
+    setRelationLoading(true);
+    setRelationError(null);
+    setRelationElders([]);
+    api
+      .get<UserElder[]>(
+        `/api/v1/users/${relationUser.id}/elders`,
+        controller.signal
+      )
+      .then((data) => setRelationElders(data))
+      .catch((caught: unknown) => {
+        if (caught instanceof DOMException && caught.name === "AbortError") {
+          return;
+        }
+        setRelationError(
+          caught instanceof Error ? caught.message : "加载监护关系失败"
+        );
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setRelationLoading(false);
+      });
+    return () => controller.abort();
+  }, [relationUser]);
 
   const openEditDialog = useCallback((user: UserOut) => {
     setEditUser(user);
@@ -147,7 +182,7 @@ export function UsersClient() {
 
       {loading ? (
         <TableWrapper>
-          <TableSkeleton rows={6} columns={5} />
+          <TableSkeleton rows={6} columns={7} />
         </TableWrapper>
       ) : error ? (
         <div className="rounded-[8px] border border-line bg-panel">
@@ -170,6 +205,7 @@ export function UsersClient() {
                 <TH>角色</TH>
                 <TH>显示名</TH>
                 <TH>手机号</TH>
+                <TH>监护关系</TH>
                 <TH className="text-right">操作</TH>
               </TR>
             </THead>
@@ -184,6 +220,17 @@ export function UsersClient() {
                   <TD>{user.display_name || "—"}</TD>
                   <TD className="tabular-nums text-ink-muted">
                     {user.phone || "—"}
+                  </TD>
+                  <TD>
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      aria-label={`查看 ${user.username} 的监护关系`}
+                      onClick={() => setRelationUser(user)}
+                    >
+                      <Eye />
+                      查看
+                    </Button>
                   </TD>
                   <TD>
                     <div className="flex justify-end">
@@ -292,6 +339,109 @@ export function UsersClient() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Sheet
+        open={relationUser !== null}
+        onOpenChange={(open) => {
+          if (!open) setRelationUser(null);
+        }}
+      >
+        <SheetContent
+          title="监护关系"
+          description={
+            relationUser
+              ? `账号 ${relationUser.username} 关联的老人与成员角色`
+              : undefined
+          }
+        >
+          {relationUser ? (
+            <div className="flex flex-col gap-5">
+              <dl className="grid grid-cols-2 gap-x-4 gap-y-3">
+                <div className="min-w-0">
+                  <dt className="text-[12px] text-ink-muted">账号</dt>
+                  <dd className="mt-1 truncate text-[13px] text-ink">
+                    {relationUser.username}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-[12px] text-ink-muted">显示名</dt>
+                  <dd className="mt-1 truncate text-[13px] text-ink">
+                    {relationUser.display_name || "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-[12px] text-ink-muted">手机号</dt>
+                  <dd className="mt-1 truncate text-[13px] tabular-nums text-ink">
+                    {relationUser.phone || "—"}
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-[12px] text-ink-muted">全局角色</dt>
+                  <dd className="mt-1">
+                    <RoleBadge role={relationUser.role} />
+                  </dd>
+                </div>
+              </dl>
+
+              <div>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="text-[13px] font-medium text-ink">关联老人</h3>
+                  <span className="text-[12px] text-ink-muted">
+                    {relationElders.length} 位
+                  </span>
+                </div>
+                {relationLoading ? (
+                  <p className="mt-3 text-[13px] text-ink-muted">
+                    正在加载关联老人…
+                  </p>
+                ) : relationError ? (
+                  <p className="mt-3 text-[13px] text-critical" role="alert">
+                    {relationError}
+                  </p>
+                ) : relationElders.length === 0 ? (
+                  <p className="mt-3 text-[13px] text-ink-muted">
+                    该账号暂未关联任何老人。
+                  </p>
+                ) : (
+                  <ul className="mt-3 divide-y divide-line rounded-[6px] border border-line">
+                    {relationElders.map((row) => (
+                      <li
+                        key={row.elder_id}
+                        className="flex items-center justify-between gap-3 px-3 py-2.5"
+                      >
+                        <span className="min-w-0">
+                          <span className="block truncate text-[13px] text-ink">
+                            {row.name}
+                          </span>
+                          <span className="mt-0.5 block text-[12px] text-ink-muted">
+                            {labelOf(RELATION_LABELS, row.relation, "关系未填写")}
+                          </span>
+                        </span>
+                        <ElderRoleBadge role={row.role} />
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className="flex justify-end border-t border-line pt-4">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => {
+                    const target = relationUser;
+                    setRelationUser(null);
+                    if (target) openEditDialog(target);
+                  }}
+                >
+                  <Pencil />
+                  编辑账号
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

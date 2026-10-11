@@ -13,6 +13,7 @@ import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { FilterBar, FilterField } from "@/components/filter-bar";
+import { ElderRoleBadge } from "@/components/member-role-badge";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -64,6 +65,8 @@ export function EldersClient() {
   const [page, setPage] = useState(1);
 
   const isAdmin = session?.role === "admin";
+  // 「我的角色」列与编辑入口只在家属视角出现：管理员本来就是全量可见
+  const showMyRole = Boolean(session) && !isAdmin;
 
   const load = useCallback(
     async (signal?: AbortSignal) => {
@@ -120,7 +123,7 @@ export function EldersClient() {
   if (!session) {
     return (
       <div className="rounded-[8px] border border-line bg-panel">
-        <TableSkeleton rows={6} columns={7} />
+        <TableSkeleton rows={6} columns={8} />
       </div>
     );
   }
@@ -168,7 +171,7 @@ export function EldersClient() {
 
       {loading ? (
         <div className="rounded-[8px] border border-line bg-panel">
-          <TableSkeleton rows={6} columns={7} />
+          <TableSkeleton rows={6} columns={showMyRole ? 8 : 7} />
         </div>
       ) : error ? (
         <div className="rounded-[8px] border border-line bg-panel">
@@ -186,7 +189,7 @@ export function EldersClient() {
                   : "当前账号还没有关联老人，请联系管理员补充关联关系。"
             }
             action={
-              !search.trim() && isAdmin ? (
+              !search.trim() ? (
                 <Button
                   variant="primary"
                   onClick={() => router.push("/elders/edit")}
@@ -204,6 +207,7 @@ export function EldersClient() {
             <THead>
               <TR className="hover:bg-transparent">
                 <TH>姓名</TH>
+                {showMyRole ? <TH>我的角色</TH> : null}
                 <TH>性别</TH>
                 <TH>出生日期</TH>
                 <TH>身高 / 体重</TH>
@@ -223,6 +227,11 @@ export function EldersClient() {
                       <span className="font-medium text-ink">{elder.name}</span>
                     </div>
                   </TD>
+                  {showMyRole ? (
+                    <TD>
+                      <ElderRoleBadge role={elder.my_role} />
+                    </TD>
+                  ) : null}
                   <TD className="text-ink-muted">
                     {genderLabel(elder.gender)}
                   </TD>
@@ -257,18 +266,20 @@ export function EldersClient() {
                           <Eye />
                         </Button>
                       </Tooltip>
-                      <Tooltip content="编辑档案">
-                        <Button
-                          variant="ghost"
-                          size="icon-sm"
-                          aria-label="编辑档案"
-                          onClick={() =>
-                            router.push(`/elders/edit?id=${elder.id}`)
-                          }
-                        >
-                          <Pencil />
-                        </Button>
-                      </Tooltip>
+                      {isAdmin || elder.my_role === "owner" ? (
+                        <Tooltip content="编辑档案">
+                          <Button
+                            variant="ghost"
+                            size="icon-sm"
+                            aria-label="编辑档案"
+                            onClick={() =>
+                              router.push(`/elders/edit?id=${elder.id}`)
+                            }
+                          >
+                            <Pencil />
+                          </Button>
+                        </Tooltip>
+                      ) : null}
                     </div>
                   </TD>
                 </TR>

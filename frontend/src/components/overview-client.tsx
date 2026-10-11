@@ -253,7 +253,7 @@ export function OverviewClient() {
             unit="条"
             icon={<BellRing className="size-4" />}
             tone="warning"
-            hint="设备侧仅管理员可见"
+            hint="今日新产生的告警"
           />
         )}
         <KpiCard

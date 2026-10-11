@@ -7,6 +7,7 @@ import {
   Pencil,
   Phone,
   Plus,
+  Search,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -14,12 +15,14 @@ import { useRouter } from "next/navigation";
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type ReactNode,
 } from "react";
 
 import { GeofenceEditor } from "@/components/geofence-editor";
+import { ElderRoleBadge } from "@/components/member-role-badge";
 import {
   AlertStatusBadge,
   DeviceStatusBadge,
@@ -58,6 +61,7 @@ import {
   toLocalInputValue,
 } from "@/lib/format";
 import type {
+  AccessCandidate,
   AccessMember,
   Alert,
   Contact,
@@ -66,7 +70,6 @@ import type {
   Elder,
   EventRecord,
   Telemetry,
-  UserOut,
 } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -276,14 +279,32 @@ export function ElderDetailClient() {
   const [alertsError, setAlertsError] = useState<string | null>(null);
 
   const [members, setMembers] = useState<AccessMember[]>([]);
-  const [membersLoading, setMembersLoading] = useState(false);
+  // 区块只在 admin/owner 渲染，初始即为加载态，避免闪现「暂未授权家属」空态
+  const [membersLoading, setMembersLoading] = useState(true);
   const [membersError, setMembersError] = useState<string | null>(null);
-  const [familyUsers, setFamilyUsers] = useState<UserOut[]>([]);
+  const [candidateQuery, setCandidateQuery] = useState("");
+  const [candidates, setCandidates] = useState<AccessCandidate[]>([]);
+  const [candidatesLoading, setCandidatesLoading] = useState(false);
+  const [candidatesError, setCandidatesError] = useState<string | null>(null);
+  const [candidatesSearched, setCandidatesSearched] = useState(false);
   const [memberUserId, setMemberUserId] = useState("");
   const [memberRole, setMemberRole] = useState<"owner" | "member">("member");
   const [savingMember, setSavingMember] = useState(false);
 
   const isAdmin = session?.role === "admin";
+  // 档案编辑与成员管理都按调用者在该老人上的角色门控（admin 的 my_role 也是 admin）
+  const canEditProfile =
+    elder?.my_role === "admin" || elder?.my_role === "owner";
+  const canManageMembers = canEditProfile;
+  // 候选账号里排除当前已是成员的行（接口已排除过一次，保存后仍需过滤）
+  const availableCandidates = useMemo(
+    () =>
+      candidates.filter(
+        (candidate) =>
+          !members.some((member) => member.user_id === candidate.id)
+      ),
+    [candidates, members]
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -443,19 +464,15 @@ export function ElderDetailClient() {
 
   const loadMembers = useCallback(
     async (signal?: AbortSignal) => {
-      if (!session || elderId === null || !isAdmin) return;
+      if (!session || elderId === null || !canManageMembers) return;
       setMembersLoading(true);
       setMembersError(null);
       try {
-        const [access, users] = await Promise.all([
-          api.get<AccessMember[]>(
-            `/api/v1/elders/${elderId}/access`,
-            signal
-          ),
-          api.get<UserOut[]>("/api/v1/users", signal),
-        ]);
+        const access = await api.get<AccessMember[]>(
+          `/api/v1/elders/${elderId}/access`,
+          signal
+        );
         setMembers(access);
-        setFamilyUsers(users.filter((user) => user.role === "family"));
       } catch (caught: unknown) {
         if (isAbortError(caught)) return;
         setMembersError(describeError(caught, "加载监护成员失败。"));
@@ -463,18 +480,59 @@ export function ElderDetailClient() {
         if (!signal?.aborted) setMembersLoading(false);
       }
     },
-    [elderId, isAdmin, session]
+    [canManageMembers, elderId, session]
+  );
+
+  const searchCandidates = useCallback(
+    async (signal?: AbortSignal) => {
+      if (elderId === null || !canManageMembers) return;
+      const keyword = candidateQuery.trim();
+      if (!keyword) {
+        setCandidatesError("请输入账号或显示名关键字。");
+        return;
+      }
+      setCandidatesLoading(true);
+      setCandidatesError(null);
+      try {
+        const data = await api.get<AccessCandidate[]>(
+          `/api/v1/elders/${elderId}/access/candidates${buildQuery({
+            q: keyword,
+          })}`,
+          signal
+        );
+        setCandidates(data);
+        setCandidatesSearched(true);
+        setMemberUserId("");
+      } catch (caught: unknown) {
+        if (isAbortError(caught)) return;
+        setCandidates([]);
+        setCandidatesSearched(false);
+        setCandidatesError(
+          describeError(caught, "搜索候选家属账号失败。")
+        );
+      } finally {
+        if (!signal?.aborted) setCandidatesLoading(false);
+      }
+    },
+    [canManageMembers, candidateQuery, elderId]
   );
 
   const saveMembers = useCallback(
-    async (next: Array<{ user_id: number; role: "owner" | "member" }>) => {
+    async (
+      next: Array<{
+        user_id: number;
+        role: "owner" | "member";
+        relation: string | null;
+      }>
+    ) => {
       if (elderId === null) return;
       setSavingMember(true);
       setMembersError(null);
       try {
+        // 接口是整体替换语义：既有行的 relation 由前端原样回填，改角色不清空关系
         const saved = await api.put<AccessMember[]>(
           `/api/v1/elders/${elderId}/access`,
-          next.map((item) => ({ ...item, relation: null }))
+          next
         );
         setMembers(saved);
         toast({
@@ -500,7 +558,6 @@ export function ElderDetailClient() {
     void loadTelemetry(controller.signal);
     void loadEvents(controller.signal);
     void loadAlerts(controller.signal);
-    void loadMembers(controller.signal);
     return () => controller.abort();
   }, [
     elderId,
@@ -509,10 +566,17 @@ export function ElderDetailClient() {
     loadContacts,
     loadDevices,
     loadEvents,
-    loadMembers,
     loadProfile,
     loadTelemetry,
   ]);
+
+  // 成员的可见与请求都取决于 my_role：member 不渲染成员区，也不发请求
+  useEffect(() => {
+    if (idState !== "ready" || elderId === null || !canManageMembers) return;
+    const controller = new AbortController();
+    void loadMembers(controller.signal);
+    return () => controller.abort();
+  }, [canManageMembers, elderId, idState, loadMembers]);
 
   const openContactsDialog = () => {
     setDraftContacts(
@@ -697,6 +761,9 @@ export function ElderDetailClient() {
     <div>
       <PageHeader
         title={elder?.name ?? "老人详情"}
+        titleAddon={
+          elder ? <ElderRoleBadge role={elder.my_role} /> : undefined
+        }
         actions={
           <>
             <Button
@@ -706,18 +773,20 @@ export function ElderDetailClient() {
               <ArrowLeft />
               返回列表
             </Button>
-            <Button
-              variant="primary"
-              onClick={() => {
-                if (elderId !== null) {
-                  router.push(`/elders/edit?id=${elderId}`);
-                }
-              }}
-              disabled={elderId === null}
-            >
-              <Pencil />
-              编辑档案
-            </Button>
+            {canEditProfile ? (
+              <Button
+                variant="primary"
+                onClick={() => {
+                  if (elderId !== null) {
+                    router.push(`/elders/edit?id=${elderId}`);
+                  }
+                }}
+                disabled={elderId === null}
+              >
+                <Pencil />
+                编辑档案
+              </Button>
+            ) : null}
           </>
         }
       />
@@ -728,19 +797,21 @@ export function ElderDetailClient() {
             title="档案信息"
             description="老人的基础档案和健康记录。"
             actions={
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  if (elderId !== null) {
-                    router.push(`/elders/edit?id=${elderId}`);
-                  }
-                }}
-                disabled={elderId === null}
-              >
-                <Pencil />
-                编辑
-              </Button>
+              canEditProfile ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    if (elderId !== null) {
+                      router.push(`/elders/edit?id=${elderId}`);
+                    }
+                  }}
+                  disabled={elderId === null}
+                >
+                  <Pencil />
+                  编辑
+                </Button>
+              ) : null
             }
           />
           {profileLoading ? (
@@ -899,15 +970,15 @@ export function ElderDetailClient() {
         </section>
       </div>
 
-      {isAdmin ? (
+      {canManageMembers ? (
         <section className="mt-4 rounded-[8px] border border-line bg-panel">
           <SectionHeader
             title="监护成员"
-            description="授权家属账号查看该老人；主照护者拥有成员管理权限。"
+            description="主照护者可添加、调整或移除成员；普通成员只能查看这位老人的数据。"
           />
           {membersLoading ? (
             <TableWrapper className="rounded-none border-0">
-              <TableSkeleton rows={3} columns={4} />
+              <TableSkeleton rows={3} columns={5} />
             </TableWrapper>
           ) : membersError ? (
             <ErrorState
@@ -923,11 +994,12 @@ export function ElderDetailClient() {
                 />
               ) : (
                 <TableWrapper className="rounded-none border-0">
-                  <Table className="min-w-[720px]">
+                  <Table className="min-w-[880px]">
                     <THead>
                       <TR className="hover:bg-transparent">
                         <TH>账号</TH>
                         <TH>显示名</TH>
+                        <TH>关系</TH>
                         <TH>角色</TH>
                         <TH className="text-right">操作</TH>
                       </TR>
@@ -936,35 +1008,47 @@ export function ElderDetailClient() {
                       {members.map((member) => (
                         <TR key={member.user_id}>
                           <TD className="font-medium text-ink">
-                            {member.username}
+                            <div className="flex items-center gap-2">
+                              <span>{member.username}</span>
+                              {session &&
+                              member.username === session.username ? (
+                                <Badge tone="info">我</Badge>
+                              ) : null}
+                            </div>
                           </TD>
                           <TD className="text-ink-muted">
                             {member.display_name ?? "—"}
                           </TD>
-                          <TD>
-                            <Select
-                              value={member.role}
-                              onValueChange={(value) =>
-                                void saveMembers(
-                                  members.map((item) => ({
-                                    user_id: item.user_id,
-                                    role:
-                                      item.user_id === member.user_id
-                                        ? (value as "owner" | "member")
-                                        : item.role,
-                                  }))
-                                )
-                              }
-                              options={[
-                                { value: "owner", label: "主照护者" },
-                                { value: "member", label: "普通成员" },
-                              ]}
-                              className="w-32"
-                              aria-label={`设置 ${member.username} 的角色`}
-                            />
+                          <TD className="text-ink-muted">
+                            {labelOf(RELATION_LABELS, member.relation, "—")}
                           </TD>
                           <TD>
-                            <div className="flex justify-end">
+                            <ElderRoleBadge role={member.role} />
+                          </TD>
+                          <TD>
+                            <div className="flex items-center justify-end gap-2">
+                              <Select
+                                value={member.role}
+                                onValueChange={(value) =>
+                                  void saveMembers(
+                                    members.map((item) => ({
+                                      user_id: item.user_id,
+                                      role:
+                                        item.user_id === member.user_id
+                                          ? (value as "owner" | "member")
+                                          : item.role,
+                                      relation: item.relation,
+                                    }))
+                                  )
+                                }
+                                options={[
+                                  { value: "owner", label: "主照护者" },
+                                  { value: "member", label: "普通成员" },
+                                ]}
+                                disabled={savingMember}
+                                className="w-32"
+                                aria-label={`设置 ${member.username} 的角色`}
+                              />
                               <Button
                                 variant="ghost"
                                 size="sm"
@@ -979,6 +1063,7 @@ export function ElderDetailClient() {
                                       .map((item) => ({
                                         user_id: item.user_id,
                                         role: item.role,
+                                        relation: item.relation,
                                       }))
                                   )
                                 }
@@ -995,68 +1080,119 @@ export function ElderDetailClient() {
                 </TableWrapper>
               )}
 
-              <div className="flex flex-wrap items-end gap-3 border-t border-line px-4 py-4">
-                <div className="flex min-w-[220px] flex-col gap-1.5">
-                  <span className="text-[12px] text-ink-muted">
-                    添加家属账号
-                  </span>
-                  <Select
-                    value={memberUserId}
-                    onValueChange={setMemberUserId}
-                    options={familyUsers
-                      .filter(
-                        (user) =>
-                          !members.some(
-                            (member) => member.user_id === user.id
-                          )
-                      )
-                      .map((user) => ({
-                        value: String(user.id),
-                        label: user.display_name
-                          ? `${user.display_name}（${user.username}）`
-                          : user.username,
-                      }))}
-                    placeholder="选择家属账号"
-                    className="w-56"
-                    aria-label="选择要添加的家属账号"
-                  />
-                </div>
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[12px] text-ink-muted">角色</span>
-                  <Select
-                    value={memberRole}
-                    onValueChange={(value) =>
-                      setMemberRole(value as "owner" | "member")
-                    }
-                    options={[
-                      { value: "member", label: "普通成员" },
-                      { value: "owner", label: "主照护者" },
-                    ]}
-                    className="w-32"
-                    aria-label="新成员角色"
-                  />
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  disabled={!memberUserId || savingMember}
-                  onClick={() => {
-                    const userId = Number(memberUserId);
-                    if (!userId) return;
-                    void saveMembers([
-                      ...members.map((item) => ({
-                        user_id: item.user_id,
-                        role: item.role,
-                      })),
-                      { user_id: userId, role: memberRole },
-                    ]);
-                    setMemberUserId("");
-                    setMemberRole("member");
+              <div className="border-t border-line px-4 py-4">
+                <form
+                  className="flex flex-wrap items-end gap-3"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void searchCandidates();
                   }}
                 >
-                  <Plus />
-                  添加
-                </Button>
+                  <div className="flex min-w-[240px] flex-col gap-1.5">
+                    <Label htmlFor="member-candidate-query" className="mb-0">
+                      搜索家属账号
+                    </Label>
+                    <div className="relative">
+                      <Search
+                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+                        aria-hidden="true"
+                      />
+                      <Input
+                        id="member-candidate-query"
+                        value={candidateQuery}
+                        maxLength={32}
+                        className="pl-9"
+                        placeholder="账号或显示名关键字"
+                        onChange={(event) =>
+                          setCandidateQuery(event.target.value)
+                        }
+                      />
+                    </div>
+                  </div>
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    size="md"
+                    disabled={candidatesLoading || !candidateQuery.trim()}
+                    aria-busy={candidatesLoading}
+                  >
+                    <Search />
+                    {candidatesLoading ? "搜索中…" : "搜索"}
+                  </Button>
+                </form>
+
+                <FieldError>{candidatesError}</FieldError>
+                {candidatesSearched &&
+                !candidatesLoading &&
+                !candidatesError &&
+                availableCandidates.length === 0 ? (
+                  <p className="mt-2 text-[12px] text-ink-muted">
+                    没有找到可添加的家属账号。
+                  </p>
+                ) : null}
+
+                <div className="mt-3 flex flex-wrap items-end gap-3">
+                  <div className="flex min-w-[220px] flex-col gap-1.5">
+                    <span className="text-[12px] text-ink-muted">
+                      候选账号
+                    </span>
+                    <Select
+                      value={memberUserId}
+                      onValueChange={setMemberUserId}
+                      options={availableCandidates.map((candidate) => ({
+                        value: String(candidate.id),
+                        label: candidate.display_name
+                          ? `${candidate.display_name}（${candidate.username}）`
+                          : candidate.username,
+                      }))}
+                      placeholder={
+                        candidatesSearched
+                          ? "选择候选账号"
+                          : "先搜索候选账号"
+                      }
+                      disabled={availableCandidates.length === 0}
+                      className="w-56"
+                      aria-label="选择要添加的家属账号"
+                    />
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <span className="text-[12px] text-ink-muted">角色</span>
+                    <Select
+                      value={memberRole}
+                      onValueChange={(value) =>
+                        setMemberRole(value as "owner" | "member")
+                      }
+                      options={[
+                        { value: "member", label: "普通成员" },
+                        { value: "owner", label: "主照护者" },
+                      ]}
+                      className="w-32"
+                      aria-label="新成员角色"
+                    />
+                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    disabled={!memberUserId || savingMember}
+                    onClick={() => {
+                      const userId = Number(memberUserId);
+                      if (!userId) return;
+                      void saveMembers([
+                        ...members.map((item) => ({
+                          user_id: item.user_id,
+                          role: item.role,
+                          relation: item.relation,
+                        })),
+                        { user_id: userId, role: memberRole, relation: null },
+                      ]);
+                      setMemberUserId("");
+                      setMemberRole("member");
+                    }}
+                  >
+                    <Plus />
+                    添加
+                  </Button>
+                </div>
               </div>
             </div>
           )}
