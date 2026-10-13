@@ -82,6 +82,28 @@ def test_migrated_database_contains_required_indexes() -> None:
     } <= actual
 
 
+def test_elder_access_metadata_has_no_role_column() -> None:
+    """SPEC 04：成员角色取消，elder_access 模型不再有 role 列。"""
+    columns = {
+        column.name for column in Base.metadata.tables["elder_access"].columns
+    }
+    assert "role" not in columns
+
+
+def test_migrated_database_elder_access_has_no_role_column() -> None:
+    """容器内在真实数据库上校验 role 列已随迁移 0006 删除。"""
+    try:
+        with engine.connect() as connection:
+            columns = {
+                column["name"]
+                for column in inspect(connection).get_columns("elder_access")
+            }
+    except OperationalError:
+        pytest.skip("数据库不可用，跳过迁移集成检查")
+
+    assert "role" not in columns
+
+
 def test_elder_role_is_rejected_by_database(db) -> None:
     """SPEC 02：角色收敛为 admin / family，elder 账号不再允许写入。"""
     session, _ = db

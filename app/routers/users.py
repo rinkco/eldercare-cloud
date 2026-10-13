@@ -36,7 +36,7 @@ def list_users(
     summary="账号关联的老人（仅 admin）",
     description=(
         "用户列表「监护关系」列与抽屉的数据来源：返回该账号关联的全部老人"
-        "及其成员角色，按 elder_id 升序；admin 账号通常返回空数组。"
+        "与关系备注，按 elder_id 升序；admin 账号通常返回空数组。"
     ),
     responses={
         403: {
@@ -67,7 +67,6 @@ def list_user_elders(
         select(
             ElderAccess.elder_id,
             Elder.name,
-            ElderAccess.role,
             ElderAccess.relation,
         )
         .join(Elder, Elder.id == ElderAccess.elder_id)
@@ -75,10 +74,8 @@ def list_user_elders(
         .order_by(ElderAccess.elder_id)
     ).all()
     return [
-        UserElderOut(
-            elder_id=elder_id, name=name, role=role, relation=relation
-        )
-        for elder_id, name, role, relation in rows
+        UserElderOut(elder_id=elder_id, name=name, relation=relation)
+        for elder_id, name, relation in rows
     ]
 
 

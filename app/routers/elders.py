@@ -12,7 +12,7 @@ from fastapi import (
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from app.access import get_elder_for_user, get_elder_role, require_elder_role
+from app.access import get_elder_for_user
 from app.audit import write_audit
 from app.db import get_db
 from app.deps import get_current_user, require_roles
@@ -51,22 +51,16 @@ def list_elders(
 ) -> list[Elder]:
     """admin 返回全部；family 只返回已关联的老人。"""
     if user.role == "admin":
-        elders = list(db.execute(select(Elder).order_by(Elder.id)).scalars())
-        for elder in elders:
-            elder.my_role = "admin"
-        return elders
+        return list(db.execute(select(Elder).order_by(Elder.id)).scalars())
 
-    rows = db.execute(
-        select(Elder, ElderAccess.role)
-        .join(ElderAccess, ElderAccess.elder_id == Elder.id)
-        .where(ElderAccess.user_id == user.id)
-        .order_by(Elder.id)
-    ).all()
-    elders = []
-    for elder, role in rows:
-        elder.my_role = role
-        elders.append(elder)
-    return elders
+    return list(
+        db.execute(
+            select(Elder)
+            .join(ElderAccess, ElderAccess.elder_id == Elder.id)
+            .where(ElderAccess.user_id == user.id)
+            .order_by(Elder.id)
+        ).scalars()
+    )
 
 
 @router.post(
@@ -91,7 +85,6 @@ def create_elder(
             ElderAccess(
                 elder_id=elder.id,
                 user_id=user.id,
-                role="owner",
                 relation="creator",
             )
         )
@@ -107,8 +100,6 @@ def create_elder(
     )
     db.commit()
     db.refresh(elder)
-    # 响应里带上调用者角色：family 创建者自动成为 owner
-    elder.my_role = "owner" if user.role == "family" else "admin"
     return elder
 
 
@@ -118,10 +109,7 @@ def get_elder(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Elder:
-    elder = get_elder_for_user(db, user, elder_id)
-    # 可见性已由 get_elder_for_user 保证；admin 固定 admin，family 取成员角色
-    elder.my_role = get_elder_role(db, user, elder_id) or "member"
-    return elder
+    return get_elder_for_user(db, user, elder_id)
 
 
 @router.put(
@@ -137,9 +125,7 @@ def update_elder(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> Elder:
-    elder = require_elder_role(
-        db, user, elder_id, ("admin", "owner"), for_update=True
-    )
+    elder = get_elder_for_user(db, user, elder_id, for_update=True)
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(elder, field, value)
 
@@ -154,7 +140,6 @@ def update_elder(
     )
     db.commit()
     db.refresh(elder)
-    elder.my_role = get_elder_role(db, user, elder_id) or "member"
     return elder
 
 
@@ -287,7 +272,6 @@ def _access_rows(db: Session, elder_id: int) -> list[AccessMemberOut]:
             user_id=access.user_id,
             username=member.username,
             display_name=member.display_name,
-            role=access.role,
             relation=access.relation,
         )
         for access, member in rows
@@ -297,25 +281,25 @@ def _access_rows(db: Session, elder_id: int) -> list[AccessMemberOut]:
 @router.get(
     "/{elder_id}/access",
     response_model=list[AccessMemberOut],
-    summary="监护成员列表（admin / owner）",
+    summary="监护成员列表（admin / 家属）",
 )
 def list_elder_access(
     elder_id: int,
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[AccessMemberOut]:
-    """admin 或该老人的 owner 查看监护成员。"""
-    require_elder_role(db, user, elder_id, ("admin", "owner"))
+    """admin 或该老人的家属成员查看监护成员。"""
+    get_elder_for_user(db, user, elder_id)
     return _access_rows(db, elder_id)
 
 
 @router.put(
     "/{elder_id}/access",
     response_model=list[AccessMemberOut],
-    summary="整体替换监护成员（admin / owner）",
+    summary="整体替换监护成员（admin / 家属）",
     description=(
-        "整体替换：提交列表覆盖该老人全部监护成员，至少保留一位 owner；"
-        "只能关联 family 账号，成员重复或缺少 owner 返回 422。"
+        "整体替换：提交列表覆盖该老人全部监护成员，至少保留一位家属成员；"
+        "只能关联 family 账号，成员重复或列表为空返回 422。"
     ),
 )
 def replace_elder_access(
@@ -325,10 +309,8 @@ def replace_elder_access(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[AccessMemberOut]:
-    """admin 或 owner 整体替换监护成员，写审计 `update_elder_access`。"""
-    elder = require_elder_role(
-        db, user, elder_id, ("admin", "owner"), for_update=True
-    )
+    """admin 或该老人的家属成员整体替换监护成员，写审计 `update_elder_access`。"""
+    elder = get_elder_for_user(db, user, elder_id, for_update=True)
 
     user_ids = [item.user_id for item in payload]
     if len(user_ids) != len(set(user_ids)):
@@ -339,15 +321,7 @@ def replace_elder_access(
     if not payload:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="至少保留一位主照护者",
-        )
-    # admin 始终拥有管理权，可以只挂 member；family 操作必须保留 owner
-    if user.role != "admin" and not any(
-        item.role == "owner" for item in payload
-    ):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="至少保留一位主照护者",
+            detail="至少保留一位家属成员",
         )
 
     members: dict[int, User] = {}
@@ -375,7 +349,6 @@ def replace_elder_access(
         ElderAccess(
             elder_id=elder_id,
             user_id=item.user_id,
-            role=item.role,
             relation=item.relation,
         )
         for item in payload
@@ -390,10 +363,7 @@ def replace_elder_access(
         target_type="elder",
         target_id=elder.id,
         ip=_client_ip(request),
-        detail={
-            "count": len(rows),
-            "owners": sum(1 for item in payload if item.role == "owner"),
-        },
+        detail={"count": len(rows)},
     )
     db.commit()
     return _access_rows(db, elder_id)
@@ -402,9 +372,9 @@ def replace_elder_access(
 @router.get(
     "/{elder_id}/access/candidates",
     response_model=list[AccessCandidateOut],
-    summary="候选家属账号检索（admin / owner）",
+    summary="候选家属账号检索（admin / 家属）",
     description=(
-        "管理员或该老人的主照护者检索可添加的家属账号：q 必填 1-32 字符，"
+        "管理员或该老人的家属成员检索可添加的家属账号：q 必填 1-32 字符，"
         "对账号与显示名做大小写不敏感的包含匹配；仅返回全局角色为 family "
         "且尚未关联该老人的账号，按账号 ID 升序，最多 10 条。"
     ),
@@ -417,8 +387,8 @@ def search_access_candidates(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[AccessCandidateOut]:
-    """admin 或该老人的 owner 按关键字检索候选家属账号。"""
-    require_elder_role(db, user, elder_id, ("admin", "owner"))
+    """admin 或该老人的家属成员按关键字检索候选家属账号。"""
+    get_elder_for_user(db, user, elder_id)
 
     pattern = f"%{_escape_like(q)}%"
     candidates = db.execute(

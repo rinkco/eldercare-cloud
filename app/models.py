@@ -69,14 +69,11 @@ class Elder(Base):
 
 
 class ElderAccess(Base):
-    """账号与老人的访问关系。"""
+    """账号与老人的访问关系（家属成员之间不区分权限层级）。"""
 
     __tablename__ = "elder_access"
     __table_args__ = (
         UniqueConstraint("elder_id", "user_id", name="uq_elder_access_elder_user"),
-        CheckConstraint(
-            "role IN ('owner', 'member')", name="ck_elder_access_role"
-        ),
         Index("ix_elder_access_user_id", "user_id"),
     )
 
@@ -86,9 +83,6 @@ class ElderAccess(Base):
     )
     user_id: Mapped[int] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="CASCADE")
-    )
-    role: Mapped[str] = mapped_column(
-        String(16), server_default=text("'member'")
     )
     relation: Mapped[str | None] = mapped_column(String(32))
 

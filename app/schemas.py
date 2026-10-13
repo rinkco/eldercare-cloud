@@ -172,9 +172,6 @@ class ElderOut(ElderCreate):
 
     id: int
     created_at: datetime
-    my_role: Literal["admin", "owner", "member"] = Field(
-        description="当前调用者在该老人上的角色：admin / owner / member"
-    )
 
 
 class ContactIn(BaseModel):
@@ -199,9 +196,6 @@ class AccessMemberIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     user_id: int = Field(gt=0, description="家属账号 ID")
-    role: Literal["owner", "member"] = Field(
-        description="owner=主照护者（可管理成员），member=普通成员"
-    )
     relation: str | None = Field(default=None, max_length=32)
 
 
@@ -214,7 +208,6 @@ class AccessMemberOut(BaseModel):
     user_id: int
     username: str
     display_name: str | None = None
-    role: str
     relation: str | None = None
 
 
@@ -223,9 +216,6 @@ class UserElderOut(BaseModel):
 
     elder_id: int = Field(description="老人 ID")
     name: str = Field(description="老人姓名")
-    role: Literal["owner", "member"] = Field(
-        description="该账号在这位老人上的成员角色"
-    )
     relation: str | None = Field(default=None, description="与老人的关系（只读展示）")
 
 

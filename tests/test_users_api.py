@@ -66,7 +66,7 @@ def _create_family_user(db, display_name: str = "额外家属") -> User:
 
 
 def _create_elder_with_members(
-    db, name: str, members: list[tuple[int, str, str | None]]
+    db, name: str, members: list[tuple[int, str | None]]
 ) -> int:
     """建测试老人并写入监护成员，返回老人 ID。"""
     session, _ = db
@@ -75,9 +75,9 @@ def _create_elder_with_members(
     session.flush()
     session.add_all(
         ElderAccess(
-            elder_id=elder.id, user_id=user_id, role=role, relation=relation
+            elder_id=elder.id, user_id=user_id, relation=relation
         )
-        for user_id, role, relation in members
+        for user_id, relation in members
     )
     session.commit()
     return elder.id
@@ -236,7 +236,7 @@ def test_admin_reads_user_elder_links(
     elder_id = _create_elder_with_members(
         db,
         "监护关系测试老人",
-        [(owner.id, "owner", "daughter"), (member.id, "member", None)],
+        [(owner.id, "daughter"), (member.id, None)],
     )
 
     try:
@@ -248,12 +248,11 @@ def test_admin_reads_user_elder_links(
             {
                 "elder_id": elder_id,
                 "name": "监护关系测试老人",
-                "role": "owner",
                 "relation": "daughter",
             }
         ]
 
-        # member 关联同样返回，relation 允许为空
+        # 另一账号的关联同样返回，relation 允许为空；不再返回成员角色
         member_response = client.get(
             f"/api/v1/users/{member.id}/elders", headers=_bearer(admin_token)
         )
@@ -262,7 +261,6 @@ def test_admin_reads_user_elder_links(
             {
                 "elder_id": elder_id,
                 "name": "监护关系测试老人",
-                "role": "member",
                 "relation": None,
             }
         ]

@@ -184,80 +184,61 @@ def test_family_creator_gets_access(
         _cleanup_elders(db, [elder["id"]])
 
 
-def test_elder_responses_include_my_role(
+def test_elder_responses_drop_member_role(
     client: TestClient, db, seeded_users
 ) -> None:
+    """SPEC 04：响应不再含 my_role；家属成员权限一致（均可编辑档案）。"""
     admin_token = _login(
         client, seeded_users.admin.username, seeded_users.admin_password
     )
     family_token = _login(
         client, seeded_users.family.username, seeded_users.family_password
     )
-    admin_elder = _create_elder(client, admin_token, "角色测试-管理员创建")
-    family_elder = _create_elder(client, family_token, "角色测试-家属创建")
+    admin_elder = _create_elder(client, admin_token, "统一权限-管理员创建")
+    family_elder = _create_elder(client, family_token, "统一权限-家属创建")
     elder_ids = [admin_elder["id"], family_elder["id"]]
     other = _create_family_user(db)
 
     try:
-        # 创建者视角
-        assert admin_elder["my_role"] == "admin"
-        assert family_elder["my_role"] == "owner"
+        assert "my_role" not in admin_elder
+        assert "my_role" not in family_elder
 
-        # admin 列表：全部为 admin
-        admin_listing = client.get("/api/v1/elders", headers=_headers(admin_token))
-        assert admin_listing.status_code == 200
-        admin_roles = {
-            item["id"]: item["my_role"] for item in admin_listing.json()
-        }
-        assert admin_roles[admin_elder["id"]] == "admin"
-        assert admin_roles[family_elder["id"]] == "admin"
-
-        # family 列表：仅关联老人，角色 owner
         family_listing = client.get(
             "/api/v1/elders", headers=_headers(family_token)
         )
         assert family_listing.status_code == 200
-        assert {
-            item["id"]: item["my_role"] for item in family_listing.json()
-        } == {family_elder["id"]: "owner"}
+        assert [item["id"] for item in family_listing.json()] == [
+            family_elder["id"]
+        ]
+        assert all("my_role" not in item for item in family_listing.json())
 
-        # 额外家属以 member 授权后，列表与详情的角色应为 member
+        # 任意家属成员都可以编辑有关联的档案（不再区分 owner / member）
         granted = client.put(
             f"/api/v1/elders/{family_elder['id']}/access",
-            headers=_headers(admin_token),
+            headers=_headers(family_token),
             json=[
-                {"user_id": seeded_users.family.id, "role": "owner"},
-                {"user_id": other.id, "role": "member"},
+                {"user_id": seeded_users.family.id, "relation": "creator"},
+                {"user_id": other.id, "relation": "son"},
             ],
         )
         assert granted.status_code == 200
+
         other_token = _login(client, other.username, EXTRA_FAMILY_PASSWORD)
-
-        other_listing = client.get(
-            "/api/v1/elders", headers=_headers(other_token)
+        detail = client.get(
+            f"/api/v1/elders/{family_elder['id']}",
+            headers=_headers(other_token),
         )
-        assert {
-            item["id"]: item["my_role"] for item in other_listing.json()
-        } == {family_elder["id"]: "member"}
+        assert detail.status_code == 200
+        assert "my_role" not in detail.json()
 
-        other_detail = client.get(
-            f"/api/v1/elders/{family_elder['id']}", headers=_headers(other_token)
-        )
-        assert other_detail.status_code == 200
-        assert other_detail.json()["my_role"] == "member"
-
-        # owner 的详情与更新响应
-        owner_detail = client.get(
-            f"/api/v1/elders/{family_elder['id']}", headers=_headers(family_token)
-        )
-        assert owner_detail.json()["my_role"] == "owner"
         updated = client.put(
             f"/api/v1/elders/{family_elder['id']}",
-            headers=_headers(family_token),
-            json={"address": "角色测试地址"},
+            headers=_headers(other_token),
+            json={"address": "统一权限地址"},
         )
         assert updated.status_code == 200
-        assert updated.json()["my_role"] == "owner"
+        assert updated.json()["address"] == "统一权限地址"
+        assert "my_role" not in updated.json()
     finally:
         _cleanup_elders(db, elder_ids)
         _delete_user(db, other.id)
@@ -365,9 +346,10 @@ def test_contacts_reject_multiple_primary(
         _cleanup_elders(db, [elder["id"]])
 
 
-def test_access_grant_and_member_permissions(
+def test_access_grant_and_uniform_family_permissions(
     client: TestClient, db, seeded_users
 ) -> None:
+    """SPEC 04：家属成员权限一致——可编辑档案、可管理成员、不可删老人。"""
     admin_token = _login(
         client, seeded_users.admin.username, seeded_users.admin_password
     )
@@ -390,36 +372,35 @@ def test_access_grant_and_member_permissions(
         granted = client.put(
             f"/api/v1/elders/{elder_id}/access",
             headers=_headers(admin_token),
-            json=[
-                {
-                    "user_id": family_id,
-                    "role": "member",
-                    "relation": "daughter",
-                }
-            ],
+            json=[{"user_id": family_id, "relation": "daughter"}],
         )
         assert granted.status_code == 200
         body = granted.json()
         assert len(body) == 1
         assert body[0]["user_id"] == family_id
         assert body[0]["username"] == seeded_users.family.username
-        assert body[0]["role"] == "member"
+        assert set(body[0]) == {
+            "id",
+            "user_id",
+            "username",
+            "display_name",
+            "relation",
+        }
 
-        # member：可见，但不能改档案、不能删老人、不能查看/管理成员
+        # 家属成员：可见、可改档案、可管理成员，但不能删老人
         assert (
             client.get(
                 f"/api/v1/elders/{elder_id}", headers=_headers(family_token)
             ).status_code
             == 200
         )
-        assert (
-            client.put(
-                f"/api/v1/elders/{elder_id}",
-                headers=_headers(family_token),
-                json={"address": "成员不应改"},
-            ).status_code
-            == 403
+        updated = client.put(
+            f"/api/v1/elders/{elder_id}",
+            headers=_headers(family_token),
+            json={"address": "家属修改地址"},
         )
+        assert updated.status_code == 200
+        assert updated.json()["address"] == "家属修改地址"
         assert (
             client.delete(
                 f"/api/v1/elders/{elder_id}", headers=_headers(family_token)
@@ -431,18 +412,16 @@ def test_access_grant_and_member_permissions(
                 f"/api/v1/elders/{elder_id}/access",
                 headers=_headers(family_token),
             ).status_code
-            == 403
+            == 200
         )
-        assert (
-            client.put(
-                f"/api/v1/elders/{elder_id}/access",
-                headers=_headers(family_token),
-                json=[{"user_id": family_id, "role": "owner"}],
-            ).status_code
-            == 403
+        replaced_by_family = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(family_token),
+            json=[{"user_id": family_id, "relation": "daughter"}],
         )
+        assert replaced_by_family.status_code == 200
 
-        # 校验：至少一位 owner、成员不重复、只能关联 family 账号
+        # 校验：列表不可为空、成员不重复、只能关联 family 账号、账号不存在 404
         assert (
             client.put(
                 f"/api/v1/elders/{elder_id}/access",
@@ -456,8 +435,8 @@ def test_access_grant_and_member_permissions(
                 f"/api/v1/elders/{elder_id}/access",
                 headers=_headers(admin_token),
                 json=[
-                    {"user_id": family_id, "role": "owner"},
-                    {"user_id": family_id, "role": "member"},
+                    {"user_id": family_id},
+                    {"user_id": family_id},
                 ],
             ).status_code
             == 422
@@ -466,38 +445,18 @@ def test_access_grant_and_member_permissions(
             client.put(
                 f"/api/v1/elders/{elder_id}/access",
                 headers=_headers(admin_token),
-                json=[{"user_id": seeded_users.admin.id, "role": "owner"}],
+                json=[{"user_id": seeded_users.admin.id}],
             ).status_code
             == 422
         )
-
-        # 升为 owner 后可查看成员并编辑档案
-        promoted = client.put(
-            f"/api/v1/elders/{elder_id}/access",
-            headers=_headers(admin_token),
-            json=[
-                {
-                    "user_id": family_id,
-                    "role": "owner",
-                    "relation": "daughter",
-                }
-            ],
-        )
-        assert promoted.status_code == 200
         assert (
-            client.get(
+            client.put(
                 f"/api/v1/elders/{elder_id}/access",
-                headers=_headers(family_token),
+                headers=_headers(admin_token),
+                json=[{"user_id": 999999999}],
             ).status_code
-            == 200
+            == 404
         )
-        updated = client.put(
-            f"/api/v1/elders/{elder_id}",
-            headers=_headers(family_token),
-            json={"address": "主照护者修改地址"},
-        )
-        assert updated.status_code == 200
-        assert updated.json()["address"] == "主照护者修改地址"
 
         session.expire_all()
         actions = set(
@@ -510,13 +469,14 @@ def test_access_grant_and_member_permissions(
         _cleanup_elders(db, [elder_id])
 
 
-def test_family_owner_can_grant_and_revoke_members(
+def test_family_member_can_grant_and_revoke_members(
     client: TestClient, db, seeded_users
 ) -> None:
+    """SPEC 04：任意家属成员都可以添加与移除成员（不再限 owner）。"""
     family_token = _login(
         client, seeded_users.family.username, seeded_users.family_password
     )
-    elder = _create_elder(client, family_token, "家属主照护者授权老人")
+    elder = _create_elder(client, family_token, "家属成员管理老人")
     elder_id = elder["id"]
     other = _create_family_user(db)
 
@@ -526,25 +486,24 @@ def test_family_owner_can_grant_and_revoke_members(
             headers=_headers(family_token),
         )
         assert members.status_code == 200
-        assert [item["role"] for item in members.json()] == ["owner"]
+        assert [item["username"] for item in members.json()] == [
+            seeded_users.family.username
+        ]
 
         granted = client.put(
             f"/api/v1/elders/{elder_id}/access",
             headers=_headers(family_token),
             json=[
-                {
-                    "user_id": seeded_users.family.id,
-                    "role": "owner",
-                    "relation": "creator",
-                },
-                {"user_id": other.id, "role": "member", "relation": "son"},
+                {"user_id": seeded_users.family.id, "relation": "creator"},
+                {"user_id": other.id, "relation": "son"},
             ],
         )
         assert granted.status_code == 200
-        assert {item["user_id"]: item["role"] for item in granted.json()} == {
-            seeded_users.family.id: "owner",
-            other.id: "member",
+        assert {item["user_id"] for item in granted.json()} == {
+            seeded_users.family.id,
+            other.id,
         }
+        assert all("role" not in item for item in granted.json())
 
         other_token = _login(client, other.username, EXTRA_FAMILY_PASSWORD)
         assert (
@@ -554,15 +513,12 @@ def test_family_owner_can_grant_and_revoke_members(
             == 200
         )
 
+        # 被授予的成员可以反过来移除自己（列表保持不为空即可）
         revoked = client.put(
             f"/api/v1/elders/{elder_id}/access",
-            headers=_headers(family_token),
+            headers=_headers(other_token),
             json=[
-                {
-                    "user_id": seeded_users.family.id,
-                    "role": "owner",
-                    "relation": "creator",
-                }
+                {"user_id": seeded_users.family.id, "relation": "creator"}
             ],
         )
         assert revoked.status_code == 200
@@ -621,13 +577,7 @@ def test_family_reads_bound_devices_readonly(
         granted = client.put(
             f"/api/v1/elders/{elder_id}/access",
             headers=_headers(admin_token),
-            json=[
-                {
-                    "user_id": seeded_users.family.id,
-                    "role": "member",
-                    "relation": "daughter",
-                }
-            ],
+            json=[{"user_id": seeded_users.family.id, "relation": "daughter"}],
         )
         assert granted.status_code == 200
 
@@ -666,7 +616,10 @@ def test_family_reads_bound_devices_readonly(
 def test_access_candidates_search(
     client: TestClient, db, seeded_users
 ) -> None:
-    """SPEC 03 步骤 3：候选家属检索的鉴权、匹配、排除与参数边界。"""
+    """SPEC 03 步骤 3：候选家属检索的鉴权、匹配、排除与参数边界。
+
+    SPEC 04 起检索不再限 owner：任意已关联的家属成员都可以检索。
+    """
     admin_token = _login(
         client, seeded_users.admin.username, seeded_users.admin_password
     )
@@ -682,7 +635,7 @@ def test_access_candidates_search(
     url = f"/api/v1/elders/{elder_id}/access/candidates"
 
     try:
-        # owner（老人创建者）按显示名包含匹配，按 ID 升序，字段只有三个
+        # 家属成员（老人创建者）按显示名包含匹配，按 ID 升序，字段只有三个
         by_name = client.get(
             url, headers=_headers(family_token), params={"q": tag}
         )
@@ -716,8 +669,8 @@ def test_access_candidates_search(
             f"/api/v1/elders/{elder_id}/access",
             headers=_headers(admin_token),
             json=[
-                {"user_id": seeded_users.family.id, "role": "owner"},
-                {"user_id": first.id, "role": "member"},
+                {"user_id": seeded_users.family.id, "relation": "creator"},
+                {"user_id": first.id, "relation": "son"},
             ],
         )
         assert granted.status_code == 200
@@ -726,14 +679,13 @@ def test_access_candidates_search(
         )
         assert [item["id"] for item in after_grant.json()] == [second.id]
 
-        # member 与未关联家属均 403（member 不发请求可搜；未关联家属看不到老人）
+        # SPEC 04：已关联的家属成员可以检索候选；未关联家属仍是 403
         member_token = _login(client, first.username, EXTRA_FAMILY_PASSWORD)
-        assert (
-            client.get(
-                url, headers=_headers(member_token), params={"q": tag}
-            ).status_code
-            == 403
+        member_view = client.get(
+            url, headers=_headers(member_token), params={"q": tag}
         )
+        assert member_view.status_code == 200
+        assert [item["id"] for item in member_view.json()] == [second.id]
         stranger_token = _login(client, second.username, EXTRA_FAMILY_PASSWORD)
         assert (
             client.get(
