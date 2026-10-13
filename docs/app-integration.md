@@ -375,6 +375,10 @@ WWW-Authenticate: Bearer
 关联关系判定可见范围；SPEC 04 起响应不再返回 `my_role`（家属成员权限一致，编辑与成员管理
 对已关联的 family 账号一律开放，删除老人仍仅 admin）。
 
+监护成员 `GET` / `PUT /api/v1/elders/{elder_id}/access` 为整体替换语义：提交列表覆盖该老人
+全部监护成员；SPEC 05 起 `PUT` 允许空数组，即清空全部绑定（可取消任意账号、含最后一位成员
+与老人的绑定），鉴权为 admin 或该老人的任一已关联家属成员。
+
 老人新建示例：
 
 ```json

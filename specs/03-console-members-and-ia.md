@@ -6,6 +6,8 @@
 > **Objective:** 在 Web 管理台落地家属 owner/member 两级权限的展示与操作边界，把告警与事件合并为单一入口、老人详情改分区 Tabs、移除长辈视图，并补齐管理员的账号-老人关联视图。
 
 > **修订记录（SPEC 04：`specs/04-unified-family-access.md`）：** 本规格引入的 owner / member 两级成员角色、角色徽章与门控、「至少保留一位 owner」约束、`ElderOut.my_role` 字段以及 `family-owner` 演示账号安排均已被 SPEC 04 取消：家属成员权限一致（关联即可查看、编辑与管理成员），`elder_access` 删除 `role` 列（迁移 0006），第三个快捷登录按钮改为测试账号 `laowang`。以下正文保留原始表述，冲突处以 SPEC 04 为准。
+>
+> **修订记录（SPEC 05：`specs/05-cancel-elder-binding.md`）：** 上述守卫（原文「至少保留一位 owner」，SPEC 04 改述为「至少保留一位家属成员」）已被 SPEC 05 进一步取消：管理员与任意家属成员都可以取消任意账号（含最后一位）与老人的绑定，成员列表允许为空。正文冲突处同样以 SPEC 05 为准。
 
 ## 为什么需要这份规格
 
