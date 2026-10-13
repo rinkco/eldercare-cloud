@@ -84,16 +84,17 @@ test.describe("老人档案与联系人", () => {
     await expect(page.getByText(renamed)).toHaveCount(0);
   });
 
-  test("family（普通成员）只看到关联老人且无编辑入口", async ({ page }) => {
+  test("family 只看到关联老人，且行内编辑入口直接可用", async ({ page }) => {
     await login(page, FAMILY);
     await page.goto("/elders/");
 
     const row = page.getByRole("row").filter({ hasText: "演示老人-张奶奶" });
     await expect(row).toBeVisible();
-    // 「我的角色」列：family 是该老人的普通成员
-    await expect(row.getByText("普通成员")).toBeVisible();
-    // member 行内没有编辑入口（编辑按钮仅 admin/owner 渲染）
-    await expect(row.getByRole("button", { name: "编辑档案" })).toHaveCount(0);
+    // SPEC 04：家属成员权限一致，不再有「我的角色」列，编辑入口直接可用
+    await expect(
+      page.getByRole("columnheader", { name: "我的角色" })
+    ).toHaveCount(0);
+    await expect(row.getByRole("button", { name: "编辑档案" })).toBeVisible();
     await expect(page.getByText(/E2E老人-/)).toHaveCount(0);
   });
 
@@ -120,9 +121,7 @@ test.describe("老人档案与联系人", () => {
     await expect(panel.getByRole("button", { name: "添加" })).toBeVisible();
   });
 
-  test("family（普通成员）在详情可看设备分区但没有成员分区", async ({
-    page,
-  }) => {
+  test("family 在详情可切换 4 个分区（含监护成员）", async ({ page }) => {
     await login(page, FAMILY);
     await page.goto("/elders/");
     await page
@@ -132,15 +131,17 @@ test.describe("老人档案与联系人", () => {
       .click();
     await expect(page).toHaveURL(/\/elders\/detail\/?\?id=\d+/);
 
-    // member 只有 3 个分区，「监护成员」既不渲染 Tab 也不渲染内容
-    await expect(page.getByRole("tab")).toHaveCount(3);
-    await expect(page.getByRole("tab", { name: "监护成员" })).toHaveCount(0);
+    // SPEC 04：家属与管理台一致，4 个分区都可见
+    await expect(page.getByRole("tab")).toHaveCount(4);
+    await expect(page.getByRole("tab", { name: "监护成员" })).toBeVisible();
 
     await page.getByRole("tab", { name: "设备与围栏" }).click();
     await expect(page.getByRole("heading", { name: "绑定设备" })).toBeVisible();
     await expect(page.getByText("esp32-demo-0001")).toBeVisible();
+
+    await page.getByRole("tab", { name: "监护成员" }).click();
     await expect(
       page.getByRole("heading", { name: "监护成员" })
-    ).toHaveCount(0);
+    ).toBeVisible();
   });
 });

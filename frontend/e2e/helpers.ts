@@ -12,10 +12,10 @@ export const FAMILY = {
   username: process.env.E2E_FAMILY_USERNAME ?? "family",
   password: process.env.E2E_FAMILY_PASSWORD ?? "family123456",
 };
-// 演示老人的主照护者（owner）：用于成员管理与角色门控用例
-export const OWNER = {
-  username: process.env.E2E_OWNER_USERNAME ?? "family-owner",
-  password: process.env.E2E_OWNER_PASSWORD ?? "owner123456",
+// 登录页第三个快捷登录按钮对应的测试账号（SPEC 04）
+export const TEST = {
+  username: process.env.E2E_TEST_USERNAME ?? "laowang",
+  password: process.env.E2E_TEST_PASSWORD ?? "123456",
 };
 
 export async function login(

@@ -25,9 +25,9 @@ const DEMO_ACCOUNTS = [
     password: process.env.NEXT_PUBLIC_DEMO_FAMILY_PASSWORD || "family123456",
   },
   {
-    label: "主照护者账号",
-    username: process.env.NEXT_PUBLIC_DEMO_OWNER_USERNAME || "family-owner",
-    password: process.env.NEXT_PUBLIC_DEMO_OWNER_PASSWORD || "owner123456",
+    label: "测试账号",
+    username: process.env.NEXT_PUBLIC_DEMO_TEST_USERNAME || "laowang",
+    password: process.env.NEXT_PUBLIC_DEMO_TEST_PASSWORD || "123456",
   },
 ];
 

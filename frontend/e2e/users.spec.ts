@@ -72,12 +72,11 @@ test.describe("用户监护关系抽屉", () => {
       sheet.getByRole("heading", { name: "监护关系", level: 2 })
     ).toBeVisible();
 
-    // 关联老人 + 成员角色徽章 + relation 只读展示
+    // 关联老人 + relation 只读展示（SPEC 04：不再展示成员角色）
     const relationRow = sheet
       .locator("li")
       .filter({ hasText: "演示老人-张奶奶" });
     await expect(relationRow).toBeVisible();
-    await expect(relationRow.getByText("普通成员")).toBeVisible();
     await expect(relationRow.getByText("女儿")).toBeVisible();
 
     // 键盘可达 + 焦点圈定：连续 Tab 时焦点始终留在抽屉内

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
-import { EmptyState, ErrorState } from "@/components/ui/states";
+import { ErrorState } from "@/components/ui/states";
 import { useToast } from "@/components/ui/toast";
 import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -151,8 +151,6 @@ export function ElderEditClient() {
   const [errors, setErrors] = useState<FormErrors>({});
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  // 普通成员（member）只能查看老人数据，直链进入编辑页时给出权限空态
-  const [permissionDenied, setPermissionDenied] = useState(false);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -191,10 +189,6 @@ export function ElderEditClient() {
       .get<Elder>(`/api/v1/elders/${elderId}`, controller.signal)
       .then((data) => {
         if (!active) return;
-        if (data.my_role === "member") {
-          setPermissionDenied(true);
-          return;
-        }
         setForm(formFromElder(data));
       })
       .catch((caught: unknown) => {
@@ -330,35 +324,6 @@ export function ElderEditClient() {
               返回老人列表
             </Button>
           </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (isEditing && permissionDenied) {
-    return (
-      <div>
-        <PageHeader title={pageTitle} />
-        <div className="rounded-[8px] border border-line bg-panel">
-          <EmptyState
-            title="需要主照护者权限"
-            description="当前账号是普通成员，只能查看这位老人的数据；如需修改档案，请联系主照护者。"
-            action={
-              <Button
-                variant="secondary"
-                onClick={() =>
-                  router.push(
-                    elderId === null
-                      ? "/elders"
-                      : `/elders/detail?id=${elderId}`
-                  )
-                }
-              >
-                <ArrowLeft />
-                返回详情
-              </Button>
-            }
-          />
         </div>
       </div>
     );
@@ -540,7 +505,6 @@ export function ElderEditClient() {
       {isEditing &&
       !loading &&
       !loadError &&
-      !permissionDenied &&
       session?.role === "admin" ? (
         <section className="mt-6 rounded-[8px] border border-critical/30 bg-panel">
           <header className="border-b border-critical/20 px-4 py-3">

@@ -22,7 +22,6 @@ import {
 } from "react";
 
 import { GeofenceEditor } from "@/components/geofence-editor";
-import { ElderRoleBadge } from "@/components/member-role-badge";
 import {
   AlertStatusBadge,
   DeviceStatusBadge,
@@ -300,16 +299,13 @@ export function ElderDetailClient() {
   const [candidatesError, setCandidatesError] = useState<string | null>(null);
   const [candidatesSearched, setCandidatesSearched] = useState(false);
   const [memberUserId, setMemberUserId] = useState("");
-  const [memberRole, setMemberRole] = useState<"owner" | "member">("member");
   const [savingMember, setSavingMember] = useState(false);
 
   const isAdmin = session?.role === "admin";
-  // 档案编辑与成员管理都按调用者在该老人上的角色门控（admin 的 my_role 也是 admin）
-  const canEditProfile =
-    elder?.my_role === "admin" || elder?.my_role === "owner";
-  const canManageMembers = canEditProfile;
-  // admin 的 my_role 恒为 admin，可提前渲染成员 Tab，避免角色返回前 Tab 数量抖动
-  const showMembersTab = isAdmin || canManageMembers;
+  // SPEC 04：家属成员权限一致——能看到老人即可编辑档案、管理监护成员
+  const canEditProfile = elder !== null;
+  const canManageMembers = isAdmin || canEditProfile;
+  const showMembersTab = canManageMembers;
 
   const [tab, setTab] = useState<ElderDetailTab>("profile");
 
@@ -319,8 +315,8 @@ export function ElderDetailClient() {
 
   useEffect(() => {
     // 必须等档案加载结束（profileLoading 转 false，无论成功/失败）才能判定成员分区可见性：
-    // 此时仍无权管理成员（member，或 403/500/网络错误导致 my_role 未知）则回落档案分区，
-    // 保证错误态可见；加载完成前不回落，避免 admin/owner 直链被提前改写。
+    // 档案加载失败（无权/不存在）时不保留 ?tab=members，回落档案分区保证错误态可见；
+    // 加载完成前不回落，避免直链被提前改写。
     if (tab !== "members" || profileLoading || canManageMembers) return;
     replaceQueryParam("tab", "profile");
     setTab("profile");
@@ -555,18 +551,12 @@ export function ElderDetailClient() {
   );
 
   const saveMembers = useCallback(
-    async (
-      next: Array<{
-        user_id: number;
-        role: "owner" | "member";
-        relation: string | null;
-      }>
-    ) => {
+    async (next: Array<{ user_id: number; relation: string | null }>) => {
       if (elderId === null) return;
       setSavingMember(true);
       setMembersError(null);
       try {
-        // 接口是整体替换语义：既有行的 relation 由前端原样回填，改角色不清空关系
+        // 接口是整体替换语义：既有行的 relation 由前端原样回填，增删成员不影响关系备注
         const saved = await api.put<AccessMember[]>(
           `/api/v1/elders/${elderId}/access`,
           next
@@ -607,7 +597,7 @@ export function ElderDetailClient() {
     loadTelemetry,
   ]);
 
-  // 成员的可见与请求都取决于 my_role：member 不渲染成员区，也不发请求
+  // 成员的可见与请求都取决于是否能看到该老人（admin 或已关联家属）
   useEffect(() => {
     if (idState !== "ready" || elderId === null || !canManageMembers) return;
     const controller = new AbortController();
@@ -798,9 +788,6 @@ export function ElderDetailClient() {
     <div>
       <PageHeader
         title={elder?.name ?? "老人详情"}
-        titleAddon={
-          elder ? <ElderRoleBadge role={elder.my_role} /> : undefined
-        }
         actions={
           <>
             <Button
@@ -1024,7 +1011,7 @@ export function ElderDetailClient() {
             <section className="rounded-[8px] border border-line bg-panel">
               <SectionHeader
                 title="监护成员"
-                description="主照护者可添加、调整或移除成员；普通成员只能查看这位老人的数据。"
+                description="家属成员权限一致；可添加或移除能访问这位老人的账号。"
               />
               {membersLoading ? (
                 <TableWrapper className="rounded-none border-0">
@@ -1050,7 +1037,6 @@ export function ElderDetailClient() {
                             <TH>账号</TH>
                             <TH>显示名</TH>
                             <TH>关系</TH>
-                            <TH>角色</TH>
                             <TH className="text-right">操作</TH>
                           </TR>
                         </THead>
@@ -1073,32 +1059,7 @@ export function ElderDetailClient() {
                                 {labelOf(RELATION_LABELS, member.relation, "—")}
                               </TD>
                               <TD>
-                                <ElderRoleBadge role={member.role} />
-                              </TD>
-                              <TD>
                                 <div className="flex items-center justify-end gap-2">
-                                  <Select
-                                    value={member.role}
-                                    onValueChange={(value) =>
-                                      void saveMembers(
-                                        members.map((item) => ({
-                                          user_id: item.user_id,
-                                          role:
-                                            item.user_id === member.user_id
-                                              ? (value as "owner" | "member")
-                                              : item.role,
-                                          relation: item.relation,
-                                        }))
-                                      )
-                                    }
-                                    options={[
-                                      { value: "owner", label: "主照护者" },
-                                      { value: "member", label: "普通成员" },
-                                    ]}
-                                    disabled={savingMember}
-                                    className="w-32"
-                                    aria-label={`设置 ${member.username} 的角色`}
-                                  />
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1112,7 +1073,6 @@ export function ElderDetailClient() {
                                           )
                                           .map((item) => ({
                                             user_id: item.user_id,
-                                            role: item.role,
                                             relation: item.relation,
                                           }))
                                       )
@@ -1205,21 +1165,6 @@ export function ElderDetailClient() {
                           aria-label="选择要添加的家属账号"
                         />
                       </div>
-                      <div className="flex flex-col gap-1.5">
-                        <span className="text-[12px] text-ink-muted">角色</span>
-                        <Select
-                          value={memberRole}
-                          onValueChange={(value) =>
-                            setMemberRole(value as "owner" | "member")
-                          }
-                          options={[
-                            { value: "member", label: "普通成员" },
-                            { value: "owner", label: "主照护者" },
-                          ]}
-                          className="w-32"
-                          aria-label="新成员角色"
-                        />
-                      </div>
                       <Button
                         variant="primary"
                         size="sm"
@@ -1230,13 +1175,11 @@ export function ElderDetailClient() {
                           void saveMembers([
                             ...members.map((item) => ({
                               user_id: item.user_id,
-                              role: item.role,
                               relation: item.relation,
                             })),
-                            { user_id: userId, role: memberRole, relation: null },
+                            { user_id: userId, relation: null },
                           ]);
                           setMemberUserId("");
-                          setMemberRole("member");
                         }}
                       >
                         <Plus />

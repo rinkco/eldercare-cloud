@@ -9,7 +9,6 @@ import {
   type FormEvent,
 } from "react";
 
-import { ElderRoleBadge } from "@/components/member-role-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -361,7 +360,7 @@ export function UsersClient() {
           title="监护关系"
           description={
             relationUser
-              ? `账号 ${relationUser.username} 关联的老人与成员角色`
+              ? `账号 ${relationUser.username} 关联的老人`
               : undefined
           }
           onCloseAutoFocus={(event) => {
@@ -433,7 +432,6 @@ export function UsersClient() {
                             {labelOf(RELATION_LABELS, row.relation, "关系未填写")}
                           </span>
                         </span>
-                        <ElderRoleBadge role={row.role} />
                       </li>
                     ))}
                   </ul>

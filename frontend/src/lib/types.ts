@@ -1,8 +1,5 @@
 export type Role = "admin" | "family";
 
-/** 调用者在某位老人上的角色（后端 ElderOut.my_role）。 */
-export type ElderRole = "admin" | "owner" | "member";
-
 export interface Session {
   token: string;
   role: Role;
@@ -30,7 +27,6 @@ export interface AccessMember {
   user_id: number;
   username: string;
   display_name: string | null;
-  role: "owner" | "member";
   relation: string | null;
 }
 
@@ -38,11 +34,10 @@ export interface AccessMember {
 export interface UserElder {
   elder_id: number;
   name: string;
-  role: "owner" | "member";
   relation: string | null;
 }
 
-/** 可作为监护成员添加的候选家属账号（admin / owner 检索）。 */
+/** 可作为监护成员添加的候选家属账号（admin / 家属检索）。 */
 export interface AccessCandidate {
   id: number;
   username: string;
@@ -59,7 +54,6 @@ export interface Elder {
   address: string | null;
   notes: string | null;
   created_at: string;
-  my_role: ElderRole;
 }
 
 export interface ElderInput {
