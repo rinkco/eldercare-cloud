@@ -2,12 +2,22 @@ import { expect, test } from "@playwright/test";
 
 import { ADMIN, login, triggerScenario } from "./helpers";
 
+// /alerts/ 现为「告警与事件」双 Tab 页：默认告警 Tab，既有 aria-label 契约保持不变
 test.describe("告警中心", () => {
   test("新告警可查看详情、通知记录并确认", async ({ page }) => {
     triggerScenario("fall");
 
     await login(page, ADMIN);
     await page.goto("/alerts/");
+
+    // 默认视图是告警 Tab，事件面板不挂载
+    await expect(page.getByRole("tab", { name: "告警" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
+    await expect(
+      page.getByRole("table", { name: "告警列表" })
+    ).toBeVisible();
 
     const row = page
       .getByRole("row")
@@ -43,6 +53,31 @@ test.describe("告警中心", () => {
 
     const rows = page.getByRole("row").filter({ hasText: "未处理" });
     await expect(rows.first()).toBeVisible({ timeout: 10_000 });
+  });
+
+  test("Tab 切换在地址栏回写当前视图并切换列表", async ({ page }) => {
+    await login(page, ADMIN);
+    await page.goto("/alerts/");
+
+    // 先点 Tab 再断言列表：未激活的面板会被卸载重挂载
+    await expect(
+      page.getByRole("combobox", { name: "告警状态" })
+    ).toBeVisible();
+
+    await page.getByRole("tab", { name: "事件" }).click();
+    await expect(page).toHaveURL(/[?&]view=events/);
+    await expect(
+      page.getByRole("table", { name: "事件记录列表" })
+    ).toBeVisible();
+    await expect(page.getByRole("combobox", { name: "告警状态" })).toHaveCount(
+      0
+    );
+
+    await page.getByRole("tab", { name: "告警" }).click();
+    await expect(page).toHaveURL(/[?&]view=alerts/);
+    await expect(
+      page.getByRole("combobox", { name: "告警状态" })
+    ).toBeVisible();
   });
 
   test("手动刷新在告警确认后能正常结束", async ({ page }) => {

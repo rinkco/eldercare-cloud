@@ -84,14 +84,20 @@ test.describe("老人档案与联系人", () => {
     await expect(page.getByText(renamed)).toHaveCount(0);
   });
 
-  test("family 只看到自己关联的老人", async ({ page }) => {
+  test("family（普通成员）只看到关联老人且无编辑入口", async ({ page }) => {
     await login(page, FAMILY);
     await page.goto("/elders/");
-    await expect(page.getByText("演示老人-张奶奶")).toBeVisible();
+
+    const row = page.getByRole("row").filter({ hasText: "演示老人-张奶奶" });
+    await expect(row).toBeVisible();
+    // 「我的角色」列：family 是该老人的普通成员
+    await expect(row.getByText("普通成员")).toBeVisible();
+    // member 行内没有编辑入口（编辑按钮仅 admin/owner 渲染）
+    await expect(row.getByRole("button", { name: "编辑档案" })).toHaveCount(0);
     await expect(page.getByText(/E2E老人-/)).toHaveCount(0);
   });
 
-  test("admin 在老人详情看到并管理监护成员面板", async ({ page }) => {
+  test("admin 在老人详情可切换分区并管理监护成员面板", async ({ page }) => {
     await login(page, ADMIN);
     await page.goto("/elders/");
     await page
@@ -101,13 +107,20 @@ test.describe("老人档案与联系人", () => {
       .click();
     await expect(page).toHaveURL(/\/elders\/detail\/?\?id=\d+/);
 
+    // 详情页默认落在「档案与联系人」分区，成员面板需先切到对应 Tab
+    await expect(
+      page.getByRole("tab", { name: "档案与联系人" })
+    ).toHaveAttribute("aria-selected", "true");
+    await page.getByRole("tab", { name: "监护成员" }).click();
+    await expect(page).toHaveURL(/tab=members/);
+
     const panel = page.locator("section").filter({ hasText: "监护成员" });
     await expect(panel).toBeVisible();
     await expect(panel.getByText("family", { exact: true })).toBeVisible();
     await expect(panel.getByRole("button", { name: "添加" })).toBeVisible();
   });
 
-  test("family 在老人详情能看到绑定设备但看不到成员面板", async ({
+  test("family（普通成员）在详情可看设备分区但没有成员分区", async ({
     page,
   }) => {
     await login(page, FAMILY);
@@ -119,6 +132,11 @@ test.describe("老人档案与联系人", () => {
       .click();
     await expect(page).toHaveURL(/\/elders\/detail\/?\?id=\d+/);
 
+    // member 只有 3 个分区，「监护成员」既不渲染 Tab 也不渲染内容
+    await expect(page.getByRole("tab")).toHaveCount(3);
+    await expect(page.getByRole("tab", { name: "监护成员" })).toHaveCount(0);
+
+    await page.getByRole("tab", { name: "设备与围栏" }).click();
     await expect(page.getByRole("heading", { name: "绑定设备" })).toBeVisible();
     await expect(page.getByText("esp32-demo-0001")).toBeVisible();
     await expect(

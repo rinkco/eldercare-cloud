@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN, login, uniqueSuffix } from "./helpers";
+import { ADMIN, FAMILY, login, uniqueSuffix } from "./helpers";
 
 test.describe("设备管理", () => {
   test("admin 注册设备、重复 UID 冲突、绑定老人", async ({ page }) => {
@@ -50,7 +50,7 @@ test.describe("设备管理", () => {
   });
 
   test("family 看不到设备菜单，直接访问显示无权", async ({ page }) => {
-    await login(page, { username: "family", password: "family123456" });
+    await login(page, FAMILY);
     await expect(page.getByRole("link", { name: "设备管理" })).toHaveCount(0);
     await page.goto("/devices/");
     await expect(page.getByText("当前账号无权访问此页面")).toBeVisible();

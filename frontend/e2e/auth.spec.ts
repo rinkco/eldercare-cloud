@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-import { ADMIN, FAMILY, login } from "./helpers";
+import { ADMIN, FAMILY, OWNER, login } from "./helpers";
 
 test.describe("登录与权限", () => {
   test("错误密码停留在登录页并提示原因", async ({ page }) => {
@@ -48,5 +48,22 @@ test.describe("登录与权限", () => {
     await page.getByRole("menuitem", { name: "退出登录" }).click();
 
     await expect(page).toHaveURL(/\/login\/?$/);
+  });
+
+  test("快捷登录可填充管理员/家属/主照护者三个演示账号", async ({ page }) => {
+    await page.goto("/login/");
+    await expect(page.getByText("快捷登录")).toBeVisible();
+
+    const accounts = [ADMIN, FAMILY, OWNER];
+    const labels = ["管理员账号", "家属账号", "主照护者账号"];
+
+    for (let index = 0; index < accounts.length; index += 1) {
+      const account = accounts[index];
+      await page
+        .getByRole("button", { name: new RegExp(labels[index]) })
+        .click();
+      await expect(page.locator("#username")).toHaveValue(account.username);
+      await expect(page.locator("#password")).toHaveValue(account.password);
+    }
   });
 });
