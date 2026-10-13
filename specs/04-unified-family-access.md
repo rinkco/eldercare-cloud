@@ -91,7 +91,7 @@
 - [x] `npx tsc --noEmit` 通过；前端镜像使用新构建参数重建成功。
 - [x] Playwright 全量通过（50 passed：1440 全量 + 1920/390 核心档位），含 `family.spec.ts`（管理成员、添加 / 移除、仅剩一位成员时移除禁用、家属编辑档案、家属确认告警）。
 - [x] 本地 seed：`family`（daughter）与 `laowang` 关联演示老人；`family-owner` 删除；`family-guest` 未关联。
-- [ ] 云端更新（47.108.147.192）：migrate 0006、seed（laowang 关联、family-owner 删除）、复验（登录页第三个按钮为 `laowang`、`ElderOut` 无 `my_role`、laowang 可访问成员接口、旧账号登录 401、`/events` 301 回归）。
+- [x] 云端更新（47.108.147.192，2026-10-13）：tarball 覆盖 `0e0f86f`；migrate 0006 `Exited (0)`、`alembic current` = 0006；seed 后 `family-owner` 已删除、`laowang` 关联演示老人（含原有 187 号老人）；复验通过——登录页第三个按钮为 `laowang`（含「测试账号」标签）、OpenAPI 与 `ElderOut` 均无 `my_role`、laowang 可访问 `/elders/1/access`、`family-owner` 登录 401、`/events` 301 回归、`readyz` 200。
 
 ## 已定决策与已排除方案
 
