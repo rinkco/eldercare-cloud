@@ -1,7 +1,13 @@
 "use client";
 
 import { Eye, Pencil, RefreshCw, Users } from "lucide-react";
-import { useCallback, useEffect, useState, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+} from "react";
 
 import { ElderRoleBadge } from "@/components/member-role-badge";
 import { Badge } from "@/components/ui/badge";
@@ -64,6 +70,8 @@ export function UsersClient() {
   const [relationElders, setRelationElders] = useState<UserElder[]>([]);
   const [relationLoading, setRelationLoading] = useState(false);
   const [relationError, setRelationError] = useState<string | null>(null);
+  // 抽屉未使用 SheetTrigger，关闭时需要手动把焦点还给当初点开的「查看」按钮
+  const relationTriggerRef = useRef<HTMLButtonElement | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -226,7 +234,10 @@ export function UsersClient() {
                       variant="secondary"
                       size="sm"
                       aria-label={`查看 ${user.username} 的监护关系`}
-                      onClick={() => setRelationUser(user)}
+                      onClick={(event) => {
+                        relationTriggerRef.current = event.currentTarget;
+                        setRelationUser(user);
+                      }}
                     >
                       <Eye />
                       查看
@@ -353,6 +364,11 @@ export function UsersClient() {
               ? `账号 ${relationUser.username} 关联的老人与成员角色`
               : undefined
           }
+          onCloseAutoFocus={(event) => {
+            // 关闭后焦点回到触发按钮；转交编辑弹窗时由弹窗自行接管焦点
+            event.preventDefault();
+            relationTriggerRef.current?.focus();
+          }}
         >
           {relationUser ? (
             <div className="flex flex-col gap-5">

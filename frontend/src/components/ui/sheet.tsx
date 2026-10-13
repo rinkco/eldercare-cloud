@@ -18,17 +18,25 @@ export function SheetContent({
   className,
   title,
   description,
+  onCloseAutoFocus,
 }: {
   children: ReactNode;
   className?: string;
   title: string;
   description?: string;
+  /**
+   * 关闭后的焦点归还。未使用 `SheetTrigger` 时 Radix 找不到触发元素，
+   * 会把焦点丢在 body 上；调用方可用本回调把焦点还给当初的触发按钮，
+   * 并 `preventDefault()` 覆盖 Radix 的默认行为。
+   */
+  onCloseAutoFocus?: (event: Event) => void;
 }) {
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
       <DialogPrimitive.Content
         aria-modal="true"
+        onCloseAutoFocus={onCloseAutoFocus}
         className={cn(
           "fixed inset-y-0 right-0 z-50 flex w-[min(92vw,420px)] flex-col",
           "border-l border-line-strong bg-panel shadow-[-24px_0_64px_rgba(0,0,0,0.55)]",
