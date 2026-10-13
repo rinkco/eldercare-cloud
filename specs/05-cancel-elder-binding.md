@@ -1,6 +1,6 @@
 # SPEC 05 — 取消账号与老人的绑定（成员列表允许为空）
 
-> **Status:** 已实现（本地验收通过；云端更新见验收记录）
+> **Status:** 已实现（本地与云端验收均通过）
 > **Depends on:** SPEC 01、SPEC 02、SPEC 03、SPEC 04（本规格修订其中「至少保留一位家属成员」守卫）
 > **Date:** 2026-10-13
 > **Objective:** 取消「至少保留一位家属成员」约束——admin 与该老人的任意家属成员都可以取消任意账号（含最后一位）与老人的绑定；`PUT /api/v1/elders/{elder_id}/access` 允许提交空数组，即清空该老人的全部监护成员，成员列表允许为空。
@@ -54,7 +54,7 @@
 - [x] 后端：`docker compose exec -T backend alembic check` 无 drift（`No new upgrade operations detected.`；本规格无迁移）。
 - [x] 前端：`npx tsc --noEmit` 通过（exit 0）；`npm run build` 通过（10 条路由静态预渲染成功）。
 - [x] e2e：`npx playwright test e2e/family.spec.ts` 通过（15 passed / 56.0s，desktop-chromium、desktop-wide、mobile-chromium 三个 project 各 5 例），含重写后的「测试账号同样可以管理成员，最后一位成员也可以取消绑定（SPEC 05）」。用例收尾经接口精确恢复 seed（`family` relation=`daughter`、`laowang` relation=null），跨 project 幂等；运行后复验 `GET /api/v1/elders/1/access` 与 seed 一致。
-- [ ] 云端更新（47.108.147.192，待后续部署子智能体执行）：`laowang` 与 admin 均可取消 187 号老人最后一位成员的绑定；清空后成员列表显示空态；本规格勾选云端项并记录复验结果。
+- [x] 云端更新（47.108.147.192，2026-10-13）：tarball 覆盖 `36be5bf`（两侧 sha256 `8adaed8f…a2ba9` 一致，248870 bytes / 159 文件；覆盖后整仓 161 文件、改动文件 0 个 CRLF）；`docker compose up -d --build` 重建后 backend / frontend `Up (healthy)`、migrate `Exited (0)`，postgres / mosquitto 未被重建（`Up 3 days`，数据卷未触碰），服务器专属 `docker-compose.override.yml` 与 `.env` 未被覆盖（mtime 保持 `2026-10-10`）；回滚快照 `/opt/eldercare-cloud.pre-36be5bf-20261013_164625`。复验通过——`readyz` 200、OpenAPI `PUT /api/v1/elders/{elder_id}/access` description 含「允许空列表」且全文档无「至少保留一位家属成员」；`laowang` 视角 `GET /api/v1/elders` = {1 演示老人-张奶奶, 187 王爷爷}，`GET /api/v1/elders/187/access` 保持 `[laowang, relation=creator]`，`GET /api/v1/elders/1/access` 保持 `[family(daughter), laowang(null)]`（未受影响）；临时老人 249 实测 `PUT /api/v1/elders/249/access` body `[]` → **200 且返回 `[]`**（核心新行为；审计 `update_elder_access` `detail={"count": 0}`），清空后该账号 `GET /api/v1/elders/249/access` 返回 403（立刻失去访问，符合设计）；测后已精确清理（`elders` / `elder_access` / `audit_logs` 相关行复核均为 0），`GET /api/v1/elders` 恢复 {1, 187}；公网 :3000 只读 Playwright 用例（187 详情页「监护成员」Tab：`laowang` 行可见且「移除」按钮 `toBeEnabled`，未点击、无写入）通过。
 
 ## 本规格不包含的内容
 
