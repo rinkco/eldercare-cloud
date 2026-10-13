@@ -2,7 +2,7 @@
 
 > 适用对象：正在开发 iOS / Android / 小程序 / H5 App 的移动端成员。  
 > 适用分支：`main`（spec-01 / spec-02 及后续增强均已合并）。  
-> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
+> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`specs/04-unified-family-access.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
 > 冲突处理：规格与当前代码不一致时，以当前代码为准。
 
 ## 1. 概览与协作边界
@@ -99,8 +99,8 @@ Invoke-RestMethod http://127.0.0.1:18080/readyz
 | `SEED_ADMIN_PASSWORD` | `admin123456` |
 | `SEED_FAMILY_USERNAME` | `family` |
 | `SEED_FAMILY_PASSWORD` | `family123456` |
-| `SEED_OWNER_USERNAME` | `family-owner` |
-| `SEED_OWNER_PASSWORD` | `owner123456` |
+| `SEED_TEST_USERNAME` | `laowang` |
+| `SEED_TEST_PASSWORD` | `123456` |
 | `SEED_GUEST_USERNAME` | `family-guest` |
 | `SEED_GUEST_PASSWORD` | `guest123456` |
 
@@ -114,10 +114,11 @@ docker compose exec backend python -m scripts.seed
 
 脚本可重复执行，主要行为：
 
-- 创建或同步 admin、family（普通成员）、family-owner（主照护者）账号及其角色和密码。
-- 创建候选家属账号 `family-guest`：全局仍是 `family` 角色，不写入 `elder_access`（供 owner 演示添加成员）。
+- 创建或同步 admin、family、测试账号 `laowang` 及其全局角色和密码。
+- 创建候选家属账号 `family-guest`：全局仍是 `family` 角色，不写入 `elder_access`（供演示添加成员）。
 - 创建或复用演示老人“演示老人-张奶奶”。
-- 建立演示老人的监护关系：`family` 为 `member`（relation=`daughter`）、`family-owner` 为 `owner`（relation=`son`）；脚本可重复执行并收敛 role / relation。
+- 建立演示老人的监护关系：`family`（relation=`daughter`）与 `laowang`（relation 为空）；脚本可重复执行并收敛 relation。
+- 删除主照护者（owner）时代的旧演示账号 `family-owner`（若存在，SPEC 04）。
 - 补充两个联系人、一个“家附近围栏”、设备 `esp32-demo-0001`。
 - 补充最近 24 小时的确定性遥测：心率、血氧、步数、活动。
 
@@ -306,7 +307,7 @@ WWW-Authenticate: Bearer
 | 告警列表 / 确认 | 全量 | 仅关联老人 |
 | 通知记录 | 全量 | 仅关联告警对应老人 |
 | 用户列表 / 用户编辑 / 查看账号监护关系 | 是 | 否，返回 403 |
-| 老人监护成员（`owner` / `member`）查看与管理 | 是 | 是（仅 `owner`；`member` 返回 403） |
+| 老人监护成员查看与管理 | 是 | 是（关联即可，家属成员权限一致） |
 | 长辈视图（App 端展示层） | 不适用（管理台已移除） | App 可用；展示层只读，但账号权限没有降级 |
 
 注册接口（`POST /api/v1/auth/register`）公开可用，注册结果固定为 `family` 角色。
@@ -368,11 +369,11 @@ WWW-Authenticate: Bearer
 | DELETE | `/api/v1/elders/{elder_id}` | admin / family | 无 | 204，无响应体 | 403、404 |
 | GET | `/api/v1/elders/{elder_id}/contacts` | admin / family | 无 | `ContactOut[]` | 403、404 |
 | PUT | `/api/v1/elders/{elder_id}/contacts` | admin / family | `ContactIn[]`；整体替换 | `ContactOut[]` | 403、404、422 |
-| GET | `/api/v1/elders/{elder_id}/access/candidates` | admin / owner | 查询参数 `q`（1 到 32 字符，必填） | `AccessCandidateOut[]` | 403、404、422 |
+| GET | `/api/v1/elders/{elder_id}/access/candidates` | admin / family | 查询参数 `q`（1 到 32 字符，必填） | `AccessCandidateOut[]` | 403、404、422 |
 
-老人相关接口（`GET` / `POST /api/v1/elders`、`GET` / `PUT /api/v1/elders/{elder_id}`）的响应都带
-`my_role`：调用者在该老人上的角色，取值 `admin` / `owner` / `member`（admin 账号一律为 `admin`）。
-App 端可以据此本地判断编辑、成员管理与告警确认入口，无需再靠 403 反推权限。
+老人相关接口（`GET` / `POST /api/v1/elders`、`GET` / `PUT /api/v1/elders/{elder_id}`）按
+关联关系判定可见范围；SPEC 04 起响应不再返回 `my_role`（家属成员权限一致，编辑与成员管理
+对已关联的 family 账号一律开放，删除老人仍仅 admin）。
 
 老人新建示例：
 
@@ -427,9 +428,9 @@ App 端可以据此本地判断编辑、成员管理与告警确认入口，无�
 
 #### 候选家属账号检索（`GET /api/v1/elders/{elder_id}/access/candidates`）
 
-供该老人的主照护者（`owner`）在添加监护成员时检索账号，避免向 family 暴露全量用户列表。
+供该老人的家属成员在添加监护成员时检索账号，避免向 family 暴露全量用户列表。
 
-- 鉴权：admin 或该老人的 `owner`；`member` 与其他 family 返回 403，老人不存在返回 404。
+- 鉴权：admin 或该老人的任一关联家属成员；未关联的 family 返回 403，老人不存在返回 404。
 - `q` 必填，1 到 32 字符，对 `username` 与 `display_name` 做大小写不敏感的包含匹配；越界返回 422。
 - 只返回全局角色为 `family` 且尚未关联该老人的账号，按 `id` 升序，最多 10 条。
 - 演示账号 `family-guest` 未关联任何老人，因此总能被该接口命中（否则候选恒为空）。
@@ -761,7 +762,7 @@ PATCH 请求示例（省略字段表示不修改；`display_name` / `phone` 传 
 
 ```json
 [
-  {"elder_id": 1, "name": "演示老人-张奶奶", "role": "member", "relation": "daughter"}
+  {"elder_id": 1, "name": "演示老人-张奶奶", "relation": "daughter"}
 ]
 ```
 
@@ -898,7 +899,6 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `UserUpdate` | `password` | string \| null | 重置密码；6-64 字符、≤72 字节 |
 | `UserElderOut` | `elder_id` | integer | 老人 ID |
 | `UserElderOut` | `name` | string | 老人姓名 |
-| `UserElderOut` | `role` | string | 该账号在这位老人上的成员角色：`owner` 或 `member` |
 | `UserElderOut` | `relation` | string \| null | 与老人的关系（只读展示） |
 | `AccessCandidateOut` | `id` | integer | 账号 ID |
 | `AccessCandidateOut` | `username` | string | 账号 |
@@ -917,7 +917,6 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `ElderOut` | `address` | string \| null | 最长 255 字符 |
 | `ElderOut` | `notes` | string \| null | 备注，无显式长度限制 |
 | `ElderOut` | `created_at` | string | ISO 8601 UTC |
-| `ElderOut` | `my_role` | string | 调用者在该老人上的角色：`admin` / `owner` / `member`；admin 账号一律为 `admin` |
 | `ContactOut` | `id` | integer | 联系人 ID；整体替换后重新生成 |
 | `ContactOut` | `name` | string | 1 到 64 字符 |
 | `ContactOut` | `phone` | string | 1 到 32 字符，不校验号码格式 |
@@ -1283,7 +1282,7 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - 没有 refresh token、Token 续期接口、Token 吊销接口和服务端 logout。
 - 已提供公开注册（`POST /api/v1/auth/register`，固定 family 角色）与 admin 用户编辑
   （`PATCH /api/v1/users/{id}`），以及监护成员管理
-  （`GET/PUT /api/v1/elders/{id}/access`，owner/member 两级）；
+  （`GET/PUT /api/v1/elders/{id}/access`，家属成员权限一致）；
   仍没有账号停用/删除、找回密码、自助改密；演示账号仍由 seed 与 `.env` 同步。
 - 没有 `/api/v1/me/*` 老人专属接口。
 - 没有独立 `elder` 登录角色；老人和 family 共用一个账号。

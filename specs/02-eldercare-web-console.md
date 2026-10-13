@@ -1,11 +1,13 @@
 # SPEC 02 — 老人监护云平台前端 Web 管理台
 
-> **Status:** 已实现（本地验收通过；云端部署演示待执行）—— 部分内容被 SPEC 03 修订，见下方修订记录
+> **Status:** 已实现（本地验收通过；云端部署演示待执行）—— 部分内容被 SPEC 03、SPEC 04 修订，见下方修订记录
 > **Depends on:** SPEC 01（老人监护云平台总体规格，已实现并通过验收）
 > **Date:** 2026-10-08
 > **Objective:** 为老人监护云平台构建一套中文、美观、有设计感的 Next.js 前端 Web 管理台，覆盖登录与角色权限、老人/联系人、设备、电子围栏、遥测与健康趋势、事件/告警/通知、实时推送，并随同一份 Docker Compose 部署到公有云供答辩演示。
 
 > **修订记录（SPEC 03：`specs/03-console-members-and-ia.md`）：** 本规格中关于「同一账号在管理台内的老人只读展示页」的路由、权限矩阵、共用账号约定、实现计划第 3/8 步、验收标准与验收记录、已定决策与风险条目均已被 SPEC 03 修订——该页面整体移除（旧地址在部署环境 301 回首页），管理台只服务 admin / family，老人侧使用 App。同时 `/events` 并入 `/alerts`（双 Tab，`?view=alerts|events`），老人详情改为可寻址的 4 个分区 Tabs，用户列表新增「监护关系」列与抽屉，老人维度成员角色 owner / member 落到管理台界面。以下正文保留原始表述，冲突处以 SPEC 03 为准。
+
+> **修订记录（SPEC 04：`specs/04-unified-family-access.md`）：** SPEC 03 引入的 owner / member 两级成员角色已被 SPEC 04 取消——家属成员权限一致（关联即可查看、编辑档案、管理成员），`ElderOut.my_role` 与管理台「我的角色」列、角色徽章、角色门控全部移除；登录页第三个快捷登录按钮改为测试账号 `laowang`。以上两处修订冲突时以 SPEC 04 为准。
 
 ## 为什么需要这份规格
 
@@ -50,9 +52,10 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 | 用户列表 | 是 | 否 |
 | WebSocket 实时推送 | 全量 | 仅关联老人 |
 
-共用账号约定：不再存在独立 elder 账号；elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人）。管理台本身只服务 admin 与 family 两个全局角色，权限边界由后端 RBAC 与 `elder_access` 决定，不依赖界面约定缩小权限。老人维度另有 owner / member 两级成员角色（迁移 0004），其界面表现由 SPEC 03 定义。
+共用账号约定：不再存在独立 elder 账号；elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人）。管理台本身只服务 admin 与 family 两个全局角色，权限边界由后端 RBAC 与 `elder_access` 决定，不依赖界面约定缩小权限。老人维度另有 owner / member 两级成员角色（迁移 0004），其界面表现由 SPEC 03 定义。SPEC 04 已取消该角色分层：家属成员权限一致，`elder_access` 不再有 role 列。
 
 > SPEC 03 修订：上表的 admin / family 二分判断保留，另按老人维度角色细分——老人列表新增「我的角色」列、详情页头角色徽章、编辑/成员管理按 admin、owner 门控；用户列表新增「监护关系」列与抽屉。详见 `specs/03-console-members-and-ia.md`。
+> SPEC 04 修订：上述「我的角色」列、角色徽章与成员角色门控均已移除；编辑与成员管理对已关联的 family 账号一律开放，删除老人仍仅 admin。详见 `specs/04-unified-family-access.md`。
 
 ## 后端变更（接口与角色模型）
 
@@ -94,7 +97,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 | `/login` | 登录 | 公开 | 账号密码登录、错误提示、演示账号提示 |
 | `/` | 概览台 | admin / family | KPI（老人数、在线设备、未处理告警、今日事件）、设备状态、最新告警、实时流 |
 | `/elders` | 老人列表 | admin / family | 搜索、分页、可见范围、新建入口 |
-| `/elders/detail` | 老人详情（SPEC 03 分区 Tabs） | admin / family | `?tab=` 四分区：档案与联系人 / 监护成员（admin 与 owner）/ 设备与围栏 / 数据记录 |
+| `/elders/detail` | 老人详情（SPEC 03 分区 Tabs） | admin / family | `?tab=` 四分区：档案与联系人 / 监护成员（admin 与 family）/ 设备与围栏 / 数据记录 |
 | `/elders/edit` | 老人编辑 | admin / family | 新建 / 编辑 / 删除（删除需二次确认） |
 | `/devices` | 设备管理 | admin | 注册设备、列表、绑定老人 |
 | `/health` | 健康数据 | admin / family | 遥测查询、小时/天趋势图、活动分布 |

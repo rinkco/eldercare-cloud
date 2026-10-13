@@ -15,7 +15,7 @@
 
 **本规格包含（In）：**
 
-- 云平台后端 MVP：账号、角色与权限（admin / family；elder 与 family 共用一个账号；老人维度角色 owner / member 见 SPEC 03）。
+- 云平台后端 MVP：账号、角色与权限（admin / family；elder 与 family 共用一个账号；老人维度成员角色 owner / member 见 SPEC 03，后被 SPEC 04 取消）。
 - 老人档案与紧急联系人管理。
 - 设备管理与设备-老人绑定。
 - MQTT 接入：遥测、事件、状态三类上行消息。
@@ -45,6 +45,7 @@
 - 原计划的 SPEC 02–06 模块拆分（用户与老人档案、设备接入与遥测、告警与通知、健康趋势、隐私安全与审计）已并入 SPEC 01 的实现，不再单独开规格。
 - SPEC 02：前端 Web 管理台（elder 与 family 共用一个 family 账号；管理台只服务 admin / family，老人侧使用 App，见 `specs/02-eldercare-web-console.md`）。
 - SPEC 03：管理台成员权限落地与前端信息架构优化（老人列表/详情按角色门控、合并告警与事件入口、移除老人只读展示页，见 `specs/03-console-members-and-ia.md`）。
+- SPEC 04：统一家属权限与测试账号（取消 owner / member 成员角色分层、`elder_access` 删除 `role` 列、登录页第三个快捷登录按钮改为测试账号 `laowang`，见 `specs/04-unified-family-access.md`）。
 - SPEC 07（可选）：AI 健康摘要与问答（调用在线大模型 API，无 Key 时模板 mock 兜底，不属于 MVP）。
 
 ## 数据模型
@@ -58,8 +59,8 @@ users(id, username UNIQUE, password_hash, role, display_name, phone, created_at)
 
 -- 老人档案与关系
 elders(id, name, gender, birth_date, height_cm, weight_kg, address, notes, created_at)
-elder_access(id, elder_id FK, user_id FK, role, relation)  -- 哪些账号可以访问哪位老人
--- role: owner | member（老人维度成员角色，迁移 0004 写入）
+elder_access(id, elder_id FK, user_id FK, relation)  -- 哪些账号可以访问哪位老人
+-- role 列已由 SPEC 04（迁移 0006）删除：家属成员权限一致，关联即可查看与维护
 elder_contacts(id, elder_id FK, name, phone, relation, priority, is_primary)
 
 -- 设备

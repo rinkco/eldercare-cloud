@@ -50,7 +50,7 @@ Invoke-RestMethod http://127.0.0.1:18080/healthz
 Invoke-RestMethod http://127.0.0.1:18080/readyz   # 数据库、迁移版本、MQTT 都就绪才返回 200
 ```
 
-- Web 管理台：<http://127.0.0.1:3000>（演示账号 admin / admin123456、family / family123456、family-owner / owner123456、family-guest / guest123456）
+- Web 管理台：<http://127.0.0.1:3000>（演示账号 admin / admin123456、family / family123456、laowang / 123456、family-guest / guest123456）
 - Swagger：<http://127.0.0.1:18080/docs>
 - MQTT：`mqtt://127.0.0.1:1883`，账号见 `.env`
 
@@ -59,8 +59,8 @@ Invoke-RestMethod http://127.0.0.1:18080/readyz   # 数据库、迁移版本、M
 管理台演示（答辩推荐顺序）：打开 <http://127.0.0.1:3000>，用 `admin` 登录，
 在概览台查看 KPI、设备状态与实时流，进入老人详情维护联系人与围栏、在健康数据
 切换小时/天趋势，触发告警后在「告警与事件」页确认（事件在第二个 Tab）并查看
-通知记录；再用 `family-owner` 登录，在老人详情「监护成员」Tab 搜索 `family-guest`
-添加成员、调整角色与移除；最后用 `family` 登录验证只读可见范围。登录页支持
+通知记录；再用测试账号 `laowang` 登录，在老人详情「监护成员」Tab 搜索 `family-guest`
+添加成员与移除（家属成员权限一致，都可编辑档案）；最后用 `family` 登录验证家属可见范围。登录页支持
 自助注册家属账号；`admin` 可在「用户列表」中查看账号的监护关系、编辑显示名、
 手机号、角色或重置密码。
 
@@ -68,7 +68,7 @@ Invoke-RestMethod http://127.0.0.1:18080/readyz   # 数据库、迁移版本、M
 # 1. 写入演示数据（可重复执行）
 docker compose exec backend python -m scripts.seed
 #    管理员 admin / admin123456
-#    家属（普通成员）family / family123456、家属（主照护者）family-owner / owner123456
+#    家属 family / family123456、测试账号 laowang / 123456
 #    候选家属（未关联老人）family-guest / guest123456（演示用）
 
 # 2. 登录拿 JWT
@@ -198,18 +198,18 @@ docker compose down -v                  # 清空数据库卷，重新开始
 | `MQTT_USER/PASSWORD` | eldercare | MQTT 账号（公网部署务必改强口令） |
 | `JWT_SECRET` | 空 | 必填，至少 32 字节随机值，启动时校验 |
 | `PIP_INDEX_URL` | pypi.org | 国内网络慢时可改为清华镜像 |
-| `SEED_OWNER_USERNAME/PASSWORD` | family-owner / owner123456 | 主照护者演示账号；seed 把它写为演示老人的 `owner` |
-| `SEED_GUEST_USERNAME/PASSWORD` | family-guest / guest123456 | 候选家属演示账号；seed 不关联任何老人，供 owner 演示添加成员 |
+| `SEED_TEST_USERNAME/PASSWORD` | laowang / 123456 | 测试账号；seed 把它关联到演示老人，登录页第三个快捷登录按钮使用 |
+| `SEED_GUEST_USERNAME/PASSWORD` | family-guest / guest123456 | 候选家属演示账号；seed 不关联任何老人，供演示添加成员 |
 | `NEXT_PUBLIC_DEMO_LOGIN_ENABLED` | true | 登录页是否显示「快捷登录」；公开演示可置 false |
 | `NEXT_PUBLIC_DEMO_ADMIN/FAMILY_PASSWORD` | admin123456 / family123456 | 快捷登录注入的演示口令，需与 `SEED_*` 一致 |
-| `NEXT_PUBLIC_DEMO_OWNER_USERNAME/PASSWORD` | family-owner / owner123456 | 登录页第三个快捷登录按钮（主照护者），需与 `SEED_OWNER_*` 一致 |
+| `NEXT_PUBLIC_DEMO_TEST_USERNAME/PASSWORD` | laowang / 123456 | 登录页第三个快捷登录按钮（测试账号），需与 `SEED_TEST_*` 一致 |
 
 ## 云端部署（答辩演示）
 
 1. Ubuntu 云服务器安装 Docker + Docker Compose；安全组开放 18080、3000、1883（1883 建议限制来源），22 仅允许管理员 IP。
 2. 上传代码，按上面的「快速开始」创建 `.env`，务必更换数据库/MQTT/SEED_* 口令与 JWT 密钥；
    若改了 `SEED_*` 口令，需同步修改 `NEXT_PUBLIC_DEMO_ADMIN_PASSWORD` /
-   `NEXT_PUBLIC_DEMO_FAMILY_PASSWORD` / `NEXT_PUBLIC_DEMO_OWNER_PASSWORD`
+   `NEXT_PUBLIC_DEMO_FAMILY_PASSWORD` / `NEXT_PUBLIC_DEMO_TEST_PASSWORD`
    （登录页快捷登录注入口令），或设 `NEXT_PUBLIC_DEMO_LOGIN_ENABLED=false` 隐藏快捷登录。
 3. `docker compose up -d --build`，确认 `migrate` Exited (0)、四个容器 healthy。
 4. 手机流量访问 `http://<公网IP>:3000` 打开管理台完成演示；`http://<公网IP>:18080/docs` 为 Swagger；外部设备用带用户名密码的 MQTT 连接 1883（MQTT 端口不变）；App/硬件同学的 REST/WS 基址需同步改为 18080。
