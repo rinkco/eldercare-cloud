@@ -6,7 +6,8 @@ import type { ReactNode } from "react";
 
 import { cn } from "@/lib/utils";
 
-// 右侧抽屉：以 Radix Dialog 为基座，天然具备 Esc 关闭、焦点圈定与 aria-modal
+// 右侧抽屉：以 Radix Dialog 为基座，Esc 关闭与焦点圈定由 Radix 提供；
+// aria-modal 由本组件在 Content 上显式声明（Radix DialogContent 只渲染 role="dialog"）
 
 export const Sheet = DialogPrimitive.Root;
 export const SheetTrigger = DialogPrimitive.Trigger;
@@ -27,6 +28,7 @@ export function SheetContent({
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" />
       <DialogPrimitive.Content
+        aria-modal="true"
         className={cn(
           "fixed inset-y-0 right-0 z-50 flex w-[min(92vw,420px)] flex-col",
           "border-l border-line-strong bg-panel shadow-[-24px_0_64px_rgba(0,0,0,0.55)]",
