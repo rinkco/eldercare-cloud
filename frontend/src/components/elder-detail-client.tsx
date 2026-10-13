@@ -290,7 +290,7 @@ export function ElderDetailClient() {
   const [alertsError, setAlertsError] = useState<string | null>(null);
 
   const [members, setMembers] = useState<AccessMember[]>([]);
-  // 区块只在 admin/owner 渲染，初始即为加载态，避免闪现「暂未授权家属」空态
+  // admin 与已关联家属渲染该区块（SPEC 04 起不再区分角色），初始即为加载态，避免闪现「暂未授权家属」空态
   const [membersLoading, setMembersLoading] = useState(true);
   const [membersError, setMembersError] = useState<string | null>(null);
   const [candidateQuery, setCandidateQuery] = useState("");
@@ -1063,7 +1063,7 @@ export function ElderDetailClient() {
                                   <Button
                                     variant="ghost"
                                     size="sm"
-                                    disabled={savingMember || members.length <= 1}
+                                    disabled={savingMember}
                                     onClick={() =>
                                       void saveMembers(
                                         members

@@ -91,46 +91,88 @@ test.describe("统一家属权限（SPEC 04）", () => {
     ).toBeVisible();
   });
 
-  test("测试账号同样可以管理成员，且仅剩一位成员时移除按钮禁用", async ({
+  test("测试账号同样可以管理成员，最后一位成员也可以取消绑定（SPEC 05）", async ({
     page,
   }) => {
-    await openDemoElderDetail(page, TEST);
+    const elderId = await openDemoElderDetail(page, TEST);
     await page.getByRole("tab", { name: "监护成员" }).click();
 
-    // 测试账号移除自己：成员列表中只剩 family 一位（不触碰 family 的关系备注）
+    // 初始：seed 给演示老人关联 family（daughter）与测试账号 laowang
     const ownRow = memberRow(page, TEST.username);
     await expect(ownRow.getByText("我")).toBeVisible();
+    await expect(memberRow(page, FAMILY.username)).toBeVisible();
+    await expect(ownRow.getByRole("button", { name: "移除" })).toBeEnabled();
+
+    // 先移除其他成员（此时自己仍有权限），列表只剩自己一位
+    await memberRow(page, FAMILY.username)
+      .getByRole("button", { name: "移除" })
+      .click();
+    await expect(page.getByText("监护成员已更新").first()).toBeVisible();
+    await expect(memberRow(page, FAMILY.username)).toHaveCount(0);
+
+    // SPEC 05：最后一位成员也可以移除（旧行为是「至少保留一位」禁用按钮）
+    await expect(ownRow.getByRole("button", { name: "移除" })).toBeEnabled();
     await ownRow.getByRole("button", { name: "移除" }).click();
     await expect(page.getByText("监护成员已更新").first()).toBeVisible();
-    await expect(memberRow(page, TEST.username)).toHaveCount(0);
+    await expect(membersPanel(page).getByText("暂未授权家属")).toBeVisible();
 
-    // 至少保留一位家属成员：最后一位成员的移除按钮禁用
-    await expect(
-      memberRow(page, FAMILY.username).getByRole("button", { name: "移除" })
-    ).toBeDisabled();
-
-    // 收尾：再用 family 登录，把测试账号加回演示老人，恢复 seed 状态
-    await page.evaluate(() => window.sessionStorage.clear());
-    await login(page, FAMILY);
+    // 取消绑定立即生效：该账号在老人列表看不到演示老人
     await page.goto("/elders/");
-    await page
-      .getByRole("row")
-      .filter({ hasText: DEMO_ELDER })
-      .getByRole("button", { name: "查看详情" })
-      .click();
+    await expect(
+      page.getByRole("row").filter({ hasText: DEMO_ELDER })
+    ).toHaveCount(0);
+    await expect(page.getByText("暂无老人档案")).toBeVisible();
+
+    // 收尾：精确恢复 seed 状态（family + laowang 两行，且保留 family 的 relation）。
+    // 这里必须走接口恢复而不是界面：界面「添加」不带 relation，会把 family 的
+    // "daughter" 丢成 null，导致后续 project（desktop-wide / mobile-chromium）
+    // 复跑本文件时断言「女儿」失败。恢复逻辑幂等，可安全重复执行。
+    await page.evaluate(() => window.sessionStorage.clear());
+    await login(page, ADMIN);
+    const adminToken = await page.evaluate(() => {
+      const raw = window.sessionStorage.getItem("eldercare.session");
+      return raw ? (JSON.parse(raw) as { token: string }).token : null;
+    });
+    expect(adminToken).toBeTruthy();
+    const authHeaders = { Authorization: `Bearer ${adminToken}` };
+
+    // 候选接口只返回「尚未关联该老人」的 family 账号，清空后可精确取回两个账号 ID
+    const findUserId = async (username: string): Promise<number> => {
+      const response = await page.request.get(
+        `/api/v1/elders/${elderId}/access/candidates?q=${username}`,
+        { headers: authHeaders }
+      );
+      expect(response.status()).toBe(200);
+      const rows = (await response.json()) as Array<{
+        id: number;
+        username: string;
+      }>;
+      const matched = rows.find((row) => row.username === username);
+      expect(matched, `候选账号 ${username} 未找到`).toBeTruthy();
+      return matched!.id;
+    };
+    const familyId = await findUserId(FAMILY.username);
+    const testId = await findUserId(TEST.username);
+
+    const restored = await page.request.put(
+      `/api/v1/elders/${elderId}/access`,
+      {
+        headers: authHeaders,
+        data: [
+          { user_id: familyId, relation: "daughter" },
+          { user_id: testId, relation: null },
+        ],
+      }
+    );
+    expect(restored.status()).toBe(200);
+
+    // 回到界面确认恢复结果：两行都在，family 行关系备注仍是「女儿」
+    await page.goto(`/elders/detail/?id=${elderId}`);
     await page.getByRole("tab", { name: "监护成员" }).click();
-    const restorePanel = membersPanel(page);
-    await restorePanel
-      .getByPlaceholder("账号或显示名关键字")
-      .fill(TEST.username);
-    await restorePanel.getByRole("button", { name: "搜索" }).click();
-    await restorePanel
-      .getByRole("combobox", { name: "选择要添加的家属账号" })
-      .click();
-    await page.getByRole("option", { name: /laowang/ }).click();
-    await restorePanel.getByRole("button", { name: "添加" }).click();
-    await expect(page.getByText("监护成员已更新").first()).toBeVisible();
     await expect(memberRow(page, TEST.username)).toBeVisible();
+    await expect(
+      memberRow(page, FAMILY.username).getByText("女儿")
+    ).toBeVisible();
   });
 
   test("家属成员可以编辑老人档案，不再出现权限空态", async ({ page }) => {
