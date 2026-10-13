@@ -1,9 +1,11 @@
 # SPEC 02 — 老人监护云平台前端 Web 管理台
 
-> **Status:** 已实现（本地验收通过；云端部署演示待执行）
+> **Status:** 已实现（本地验收通过；云端部署演示待执行）—— 部分内容被 SPEC 03 修订，见下方修订记录
 > **Depends on:** SPEC 01（老人监护云平台总体规格，已实现并通过验收）
 > **Date:** 2026-10-08
-> **Objective:** 为老人监护云平台构建一套中文、美观、有设计感的 Next.js 前端 Web 管理台，覆盖登录与角色权限、老人/联系人、设备、电子围栏、遥测与健康趋势、事件/告警/通知、实时推送，以及同一账号下的长辈视图（elder 与 family 共用账号），并随同一份 Docker Compose 部署到公有云供答辩演示。
+> **Objective:** 为老人监护云平台构建一套中文、美观、有设计感的 Next.js 前端 Web 管理台，覆盖登录与角色权限、老人/联系人、设备、电子围栏、遥测与健康趋势、事件/告警/通知、实时推送，并随同一份 Docker Compose 部署到公有云供答辩演示。
+
+> **修订记录（SPEC 03：`specs/03-console-members-and-ia.md`）：** 本规格中关于「同一账号在管理台内的老人只读展示页」的路由、权限矩阵、共用账号约定、实现计划第 3/8 步、验收标准与验收记录、已定决策与风险条目均已被 SPEC 03 修订——该页面整体移除（旧地址在部署环境 301 回首页），管理台只服务 admin / family，老人侧使用 App。同时 `/events` 并入 `/alerts`（双 Tab，`?view=alerts|events`），老人详情改为可寻址的 4 个分区 Tabs，用户列表新增「监护关系」列与抽屉，老人维度成员角色 owner / member 落到管理台界面。以下正文保留原始表述，冲突处以 SPEC 03 为准。
 
 ## 为什么需要这份规格
 
@@ -15,7 +17,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 
 - 后端变更：电子围栏读写、通知记录查询、角色模型收敛为 admin / family（移除独立 elder 账号并迁移存量账号）、`elder_access(user_id)` 索引。
 - 数据迁移 0003：存量 elder 账号并入 family、收紧 role 约束、新增 `elder_access(user_id)` 索引。
-- 前端 Web 管理台（Next.js App Router + TypeScript + Tailwind + shadcn/ui + Recharts）：登录、概览台、老人与联系人、设备、围栏、健康趋势、事件/告警/通知、告警确认，以及同一账号下的长辈视图（只读展示模式）。
+- 前端 Web 管理台（Next.js App Router + TypeScript + Tailwind + shadcn/ui + Recharts）：登录、概览台、老人与联系人、设备、围栏、健康趋势、事件/告警/通知、告警确认。
 - 实时推送：WebSocket 新告警与新遥测摘要；断线重连与轮询兜底。
 - 设计系统：深色专业监控风格 + 非模板化设计标准（色彩、字体层级、栅格、图表、动效、状态、响应式、无障碍）。
 - 部署：新增 `frontend` 容器（Next.js 静态导出 + nginx），同一份 compose 对外 3000，nginx 同源反代 `/api` 与 `/api/v1/ws` 到 backend。
@@ -47,9 +49,10 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 | 通知记录查询 | 是 | 仅关联老人 |
 | 用户列表 | 是 | 否 |
 | WebSocket 实时推送 | 全量 | 仅关联老人 |
-| 长辈视图（只读展示） | 可预览 | 是 |
 
-共用账号约定：不再存在独立 elder 账号；elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人）。前端在同一账号内提供「管理视图」与「长辈视图」：长辈视图是面向老人使用场景的简化只读界面，但账号权限与管理视图完全共享，**只读是界面约定，不是安全隔离**。
+共用账号约定：不再存在独立 elder 账号；elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人）。管理台本身只服务 admin 与 family 两个全局角色，权限边界由后端 RBAC 与 `elder_access` 决定，不依赖界面约定缩小权限。老人维度另有 owner / member 两级成员角色（迁移 0004），其界面表现由 SPEC 03 定义。
+
+> SPEC 03 修订：上表的 admin / family 二分判断保留，另按老人维度角色细分——老人列表新增「我的角色」列、详情页头角色徽章、编辑/成员管理按 admin、owner 门控；用户列表新增「监护关系」列与抽屉。详见 `specs/03-console-members-and-ia.md`。
 
 ## 后端变更（接口与角色模型）
 
@@ -80,7 +83,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
   2. 收紧 `ck_users_role` 约束为 `role IN ('admin', 'family')`；
   3. 新增索引 `ix_elder_access_user_id`（`elder_access.user_id`），服务于 family 列表查询。
 - 后端同步清理：移除鉴权、访问校验与测试中 `role='elder'` 的分支；seed 脚本继续只创建 admin / family 账号；存量 elder 账号迁移为 family 后，若没有 `elder_access` 关联则看不到任何老人数据（安全兜底）。
-- WebSocket 维持现有角色约束（admin / family），长辈视图复用同一账号的 WS 连接。
+- WebSocket 维持现有角色约束（admin / family）。
 
 ## 前端信息架构
 
@@ -91,14 +94,13 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 | `/login` | 登录 | 公开 | 账号密码登录、错误提示、演示账号提示 |
 | `/` | 概览台 | admin / family | KPI（老人数、在线设备、未处理告警、今日事件）、设备状态、最新告警、实时流 |
 | `/elders` | 老人列表 | admin / family | 搜索、分页、可见范围、新建入口 |
-| `/elders/detail` | 老人详情 | admin / family | 档案、联系人、绑定设备、围栏、最近遥测、事件/告警 |
+| `/elders/detail` | 老人详情（SPEC 03 分区 Tabs） | admin / family | `?tab=` 四分区：档案与联系人 / 监护成员（admin 与 owner）/ 设备与围栏 / 数据记录 |
 | `/elders/edit` | 老人编辑 | admin / family | 新建 / 编辑 / 删除（删除需二次确认） |
 | `/devices` | 设备管理 | admin | 注册设备、列表、绑定老人 |
 | `/health` | 健康数据 | admin / family | 遥测查询、小时/天趋势图、活动分布 |
-| `/alerts` | 告警中心 | admin / family | 过滤、告警详情、确认、通知记录 |
-| `/events` | 事件记录 | admin / family | 类型/状态/时间过滤 |
-| `/users` | 用户列表 | admin | 只读账号列表 |
-| `/elder-view` | 长辈视图 | family（共用账号） | 本人档案、联系人、遥测、趋势、告警（只读展示）；顶部菜单可切回管理视图 |
+| `/alerts` | 告警与事件（SPEC 03 合并） | admin / family | 双 Tab：告警（过滤、详情、确认、通知记录）/ 事件（类型/状态/老人/时间过滤、完整 Payload） |
+| `/events` | — | — | 已移除：SPEC 03 并入 `/alerts?view=events`，部署环境 301 跳转 |
+| `/users` | 用户列表 | admin | 只读账号列表 + 「监护关系」列与抽屉（SPEC 03） |
 
 通用组件：应用外壳（侧边导航 + 顶部状态栏）、角色菜单、数据表格、过滤栏、抽屉/对话框、确认弹窗、Toast、骨架屏、空态、错误态、实时连接指示、数字滚动、趋势图卡。
 
@@ -168,19 +170,19 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 
 1. 后端改动：围栏 GET/PUT、通知查询、角色模型收敛（移除 elder 角色并迁移存量账号）、迁移 0003（role 约束收紧 + `elder_access(user_id)` 索引）；同步清理后端 elder 分支与测试。
 2. 前端脚手架与设计 token：Next.js + TypeScript + Tailwind + shadcn/ui + Recharts；建立色彩/字体/间距/圆角 token、应用外壳与导航；compose 增加 frontend 服务与 nginx 同源反代；登录页壳可访问。
-3. 认证与权限框架：登录、sessionStorage 存取 JWT、路由守卫、角色菜单、401/403 处理、退出登录、Token 过期自动跳转；顶部账号菜单提供「管理视图 / 长辈视图」切换。
+3. 认证与权限框架：登录、sessionStorage 存取 JWT、路由守卫、角色菜单、401/403 处理、退出登录、Token 过期自动跳转。
 4. 概览台：admin / family 差异化 KPI（老人数、在线设备、未处理告警、今日事件）、设备状态、最新告警列表、WebSocket 实时流与连接状态。
 5. 老人与联系人模块：列表、详情、新建、编辑、删除、紧急联系人读写（整体替换语义提示）、family 可见范围。
 6. 设备与围栏模块：设备注册/列表/绑定（admin）、重复绑定与占用 409 提示；围栏读取/整体替换、半径与开关校验。
 7. 健康数据模块：遥测查询（指标/时间过滤）、小时/天趋势图（心率、血氧、步数、活动）、活动分布、表格视图。
-8. 事件/告警/通知模块：事件与告警列表过滤、告警确认、通知记录展示；长辈视图（同一账号只读展示）接入。
+8. 事件/告警/通知模块：事件与告警列表过滤、告警确认、通知记录展示。
 9. 设计打磨：状态与空态、响应式三档、无障碍、动效克制、图表质感；对照 `frontend-design` / `premium-frontend-ui` 自检并截图评审。
 10. 测试与打包：Playwright 端到端用例、README 更新（含前端 3000 的冷启动与演示步骤）、`docker compose down -v` 冷启动复测、云端部署验收。
 
 ## 验收标准
 
 - [x] `docker compose up -d --build` 后 `frontend` 容器 healthy，浏览器打开 `http://127.0.0.1:3000` 显示登录页；`migrate` 为 Exited (0)，backend/postgres/mosquitto 均 healthy。
-- [x] admin 登录可见全部菜单；family 仅能看到并操作已关联老人；family 账号可在顶部菜单切换到长辈视图（只读展示，写操作入口隐藏）；不存在独立 elder 登录。
+- [x] admin 登录可见全部菜单；family 仅能看到并操作已关联老人；不存在独立 elder 登录。
 - [x] 数据库 `users.role` 约束已收敛为 admin / family；历史 elder 账号迁移为 family 后仍可登录，且在无 `elder_access` 关联时看不到任何老人数据。
 - [x] 老人档案、紧急联系人、设备绑定可完成增删改查；重复绑定或绑定已占用设备时界面给出 409 中文原因。
 - [x] 电子围栏可读取与整体替换，空数组能清空；半径越界等非法输入在表单层与接口层都被拒绝。
@@ -202,7 +204,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 - 前端：`npm run build` 静态导出 12 个路由成功；`npx tsc --noEmit` 无错误
 - 端到端：`npx playwright test` → 28 passed（desktop-chromium 1440×900 全量 15；desktop-wide 1920×1080 核心 7；mobile-chromium 390×844 核心 6）
 - 部署：`docker compose down -v` 后 `docker compose up -d --build` 冷启动，frontend/backend/postgres/mosquitto 均 healthy，migrate Exited (0)，`alembic current` = 0003_role_model_and_index (head)
-- 覆盖场景：登录与权限、老人/联系人 CRUD 与二次确认、设备注册与 409、围栏整体替换、健康趋势与表格视图、告警确认与通知记录、WebSocket 实时推送、长辈视图只读。
+- 覆盖场景：登录与权限、老人/联系人 CRUD 与二次确认、设备注册与 409、围栏整体替换、健康趋势与表格视图、告警确认与通知记录、WebSocket 实时推送。
 - 云端部署与手机流量验收需在真实云服务器执行，未包含在本记录内。
 
 ## 已定决策与已排除方案
@@ -210,7 +212,7 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 - **是：** Next.js App Router + TypeScript + Tailwind + shadcn/ui + Recharts + Framer Motion，理由是组件生态成熟、管理台开发速度快、与答辩演示匹配。
 - **是：** 静态导出 + nginx 单容器，对外端口 3000，nginx 同源反代 `/api` 与 `/api/v1/ws`，避免修改后端 CORS。
 - **是：** JWT 存 `sessionStorage`，关闭标签页即失效；401 或过期自动跳登录。
-- **是：** elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人），前端在同一账号内提供「长辈视图」只读展示；不再维护独立 elder 账号与 `/api/v1/me/*` 接口。
+- **是：** elder 与 family 共用一个 family 账号（通过 `elder_access` 关联老人），不再维护独立 elder 账号与 `/api/v1/me/*` 接口。（SPEC 03 修订：移除该账号在管理台内的老人只读展示页。）
 - **是：** 角色模型收敛为 admin / family；迁移 0003 将存量 elder 账号并入 family 并收紧约束。
 - **是：** 把围栏读写与通知查询纳入本规格，保证前端能覆盖后端全部已有能力。
 - **是：** 深色专业监控风格打底，用非模板化设计标准（配色/排版/图表/动效）制造设计感。
@@ -225,7 +227,6 @@ SPEC 01 只交付了云平台后端，界面部分明确留给了 App/小程序�
 | --- | --- | --- |
 | 静态导出下详情页使用查询参数，URL 观感一般 | 演示体验下降 | 用面包屑与页面标题强化层级；如后续需要动态路由，改 nginx 回退或切 standalone 模式 |
 | nginx 同源反代配置错误导致 WS 失败 | 实时推送不可用 | 提供 WS 端到端用例；前端显示连接状态并在断线时轮询兜底 |
-| 长辈视图只读被理解为安全隔离 | 共用账号本身拥有 family 写权限，存在误操作风险 | 规格明确长辈视图仅为界面展示约定；写操作保留二次确认；如需真正隔离另开账号权限规格 |
 | 存量 elder 账号迁移遗漏 | 登录失败或数据可见性异常 | 迁移先 UPDATE 再收紧 CHECK；补充迁移与登录回归测试 |
 | 设计打磨占用过多工期 | 核心功能延期 | 先冻结 token 与布局，动效限定“首屏进入 + 新告警高亮”两处 |
 | 新增端口 3000 公网暴露 | 被扫描/滥用 | 演示期使用强口令账号，安全组按需限制来源；HTTPS 不在本规格范围 |

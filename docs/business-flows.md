@@ -30,7 +30,7 @@
 | 查看绑定设备（只读） | 是 | 是 | 是 |
 | 注册 / 绑定 / 解绑设备 | 是 | 否 | 否 |
 | 用户列表 / 编辑用户 / 重置密码 | 是 | 否 | 否 |
-| 长辈视图（只读展示） | 可预览 | 可切换 | 可切换 |
+| 查看账号监护关系（用户列表） | 是 | 否 | 否 |
 
 ## 3. 管理员流程
 
@@ -38,9 +38,10 @@
 2. 新建老人档案（也可由家属自建，家属创建者自动成为 owner）。
 3. 设备管理页注册设备：填写 `device_uid`、类型（esp32 / phone / wearable）、型号。
 4. 把设备绑定到老人；一台设备同一时刻只能绑定一位老人。
-5. 在老人详情「监护成员」面板授权家属：
+5. 在老人详情「监护成员」Tab 授权家属（admin 与该老人的 owner 都有此入口）：
    - 选择家属账号与角色（owner / member），保存后立即生效；
-   - 至少保留一位成员；member 不能管理成员，owner 可以。
+   - family 操作时至少保留一位 owner；member 不能管理成员，owner 可以；
+   - owner 用候选搜索接口按关键字检索要添加的家属账号，无需用户列表权限。
 6. 日常：查看全量看板、处理告警、维护围栏/联系人、编辑用户；所有写操作进审计日志。
 7. 设备换人：先「解绑」，再绑定到新老人；历史数据保留在原老人名下。
 
@@ -50,9 +51,15 @@
 | --- | --- |
 | 监护成员列表 | `GET /api/v1/elders/{elder_id}/access` |
 | 监护成员整体替换 | `PUT /api/v1/elders/{elder_id}/access` |
+| 候选家属账号检索（admin / owner） | `GET /api/v1/elders/{elder_id}/access/candidates?q={关键字}` |
+| 账号关联的老人（用户列表「监护关系」，仅 admin） | `GET /api/v1/users/{user_id}/elders` |
 | 老人绑定设备（只读） | `GET /api/v1/elders/{elder_id}/devices` |
 | 注册 / 绑定设备 | `POST /api/v1/devices`、`POST /api/v1/devices/{id}/bind` |
 | 解绑设备 | `POST /api/v1/devices/{id}/unbind` |
+
+老人相关接口（`GET/POST /api/v1/elders`、`GET/PUT /api/v1/elders/{elder_id}`）的响应都带
+`my_role`（调用者在该老人上的角色：`admin` / `owner` / `member`）。管理台用它在老人列表
+显示「我的角色」、在详情页头显示角色徽章，并按角色门控按钮，不再靠 403 反推权限。
 
 ## 4. 家属流程
 
@@ -60,9 +67,8 @@
 2. 新账号默认看不到任何老人。两种方式获得访问权：
    - 自己新建老人：自动成为该老人的 owner；
    - 由 admin（或该老人 owner）在「监护成员」中授权为 owner / member。
-3. 查看健康数据、事件、告警；在告警中心确认告警（member 也可以确认）。
+3. 查看健康数据、事件、告警；在「告警与事件」页确认告警（member 也可以确认）。
 4. owner 可继续添加/移除其他家属成员；被移除后 REST 立即 403，WebSocket 可见范围在 30 秒内刷新。
-5. 顶部菜单可切换到「长辈视图」：同一账号的只读展示界面，不是安全隔离。
 
 ## 5. 硬件设备流程
 
@@ -93,9 +99,11 @@
 
 1. `docker compose ps` 确认 backend 有 `0.0.0.0:18080->8000/tcp`，`readyz` 返回全 ok。
 2. admin 登录管理台，注册硬件设备 `esp32-demo-0002` 并绑定到演示老人。
-3. 在老人详情「监护成员」把 `family` 授权为 owner（或 member），现场展示成员面板。
+3. 用 `family-owner`（主照护者）登录，在老人详情「监护成员」Tab 搜索并添加候选账号
+   `family-guest`，现场展示候选搜索、添加与角色调整（owner 与 admin 都有该入口）。
 4. 硬件上电，管理台确认设备 `online`；触发跌倒，展示 alert 推送与通知记录。
-5. family 登录 App / 管理台确认告警，展示 alert 与 event 同时变为 `handled`。
+5. `family` 登录管理台「告警与事件」页（默认告警 Tab）确认告警，展示 alert 与 event
+   同时变为 `handled`；事件在第二个 Tab 查看完整 Payload。
 6. 可选：演示设备解绑 → 设备回到未绑定；重新绑定到另一位老人。
 7. 可选：停止心跳 2 分 15 秒，展示 `device_offline` 告警；恢复后设备重新 online。
 
@@ -129,3 +137,5 @@
 - 通知为 console 模拟；无真实短信/电话/系统推送，App 仅前台弹窗。
 - 无字段级共享同意；关联 elder_access 后可见该老人全部历史数据。
 - 告警无超时升级、无关闭动作；`closed` 状态在界面上不再展示。
+- 管理台只服务 admin / family（老人侧用 App）：已移除老人只读展示页（旧地址 301 回首页），
+  「事件记录」并入「告警与事件」页（`/events` 301 到 `/alerts/?view=events`）。
