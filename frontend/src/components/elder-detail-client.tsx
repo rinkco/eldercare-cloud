@@ -46,6 +46,7 @@ import {
   THead,
   TR,
 } from "@/components/ui/table";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/components/ui/toast";
 import { Tooltip } from "@/components/ui/tooltip";
 import { api, ApiError, buildQuery } from "@/lib/api";
@@ -60,6 +61,7 @@ import {
   formatNumber,
   toLocalInputValue,
 } from "@/lib/format";
+import { readQueryParam, replaceQueryParam } from "@/lib/query";
 import type {
   AccessCandidate,
   AccessMember,
@@ -78,6 +80,16 @@ const GENDER_LABELS: Record<string, string> = {
   female: "女",
   other: "其他",
 };
+
+const DETAIL_TABS = ["profile", "members", "devices", "data"] as const;
+type ElderDetailTab = (typeof DETAIL_TABS)[number];
+
+/** 非法或缺失的 `?tab=` 一律回落到默认的档案与联系人分区。 */
+function parseDetailTab(raw: string | null): ElderDetailTab {
+  return (DETAIL_TABS as readonly string[]).includes(raw ?? "")
+    ? (raw as ElderDetailTab)
+    : "profile";
+}
 
 interface ContactDraft {
   rowId: string;
@@ -296,6 +308,29 @@ export function ElderDetailClient() {
   const canEditProfile =
     elder?.my_role === "admin" || elder?.my_role === "owner";
   const canManageMembers = canEditProfile;
+  // admin 的 my_role 恒为 admin，可提前渲染成员 Tab，避免角色返回前 Tab 数量抖动
+  const showMembersTab = isAdmin || canManageMembers;
+
+  const [tab, setTab] = useState<ElderDetailTab>("profile");
+
+  useEffect(() => {
+    setTab(parseDetailTab(readQueryParam("tab")));
+  }, []);
+
+  useEffect(() => {
+    // my_role 返回后才能判定成员分区可见性：member 直链 ?tab=members 在此回落
+    if (tab !== "members" || !elder || canManageMembers) return;
+    replaceQueryParam("tab", "profile");
+    setTab("profile");
+  }, [canManageMembers, elder, tab]);
+
+  const changeTab = useCallback((next: string) => {
+    const parsed = parseDetailTab(next);
+    // 回写地址栏：刷新与分享保持所在分区
+    replaceQueryParam("tab", parsed);
+    setTab(parsed);
+  }, []);
+
   // 候选账号里排除当前已是成员的行（接口已排除过一次，保存后仍需过滤）
   const availableCandidates = useMemo(
     () =>
@@ -791,287 +826,492 @@ export function ElderDetailClient() {
         }
       />
 
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
-        <section className="rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="档案信息"
-            description="老人的基础档案和健康记录。"
-            actions={
-              canEditProfile ? (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    if (elderId !== null) {
-                      router.push(`/elders/edit?id=${elderId}`);
-                    }
-                  }}
-                  disabled={elderId === null}
-                >
-                  <Pencil />
-                  编辑
-                </Button>
-              ) : null
-            }
-          />
-          {profileLoading ? (
-            <div className="grid gap-4 p-4 sm:grid-cols-2">
-              {Array.from({ length: 8 }).map((_, index) => (
-                <div key={index}>
-                  <Skeleton className="h-3 w-16" />
-                  <Skeleton className="mt-2 h-4 w-28" />
-                </div>
-              ))}
-            </div>
-          ) : profileError ? (
-            <ErrorState
-              message={profileError}
-              onRetry={() => void loadProfile()}
-            />
-          ) : elder ? (
-            <dl className="grid gap-x-6 gap-y-5 p-4 sm:grid-cols-2">
-              <InfoItem label="姓名" value={elder.name} />
-              <InfoItem label="性别" value={genderLabel(elder.gender)} />
-              <InfoItem
-                label="出生日期"
-                value={toLocalInputValue(elder.birth_date) || "—"}
-              />
-              <InfoItem
-                label="身高 / 体重"
-                value={
-                  elder.height_cm === null && elder.weight_kg === null
-                    ? "—"
-                    : [
-                        elder.height_cm === null
-                          ? null
-                          : `${elder.height_cm} cm`,
-                        elder.weight_kg === null
-                          ? null
-                          : `${elder.weight_kg} kg`,
-                      ]
-                        .filter(Boolean)
-                        .join(" / ")
-                }
-              />
-              <InfoItem
-                label="地址"
-                value={elder.address || "—"}
-                className="sm:col-span-2"
-              />
-              <InfoItem
-                label="备注"
-                value={
-                  <span className="whitespace-pre-wrap">
-                    {elder.notes || "—"}
-                  </span>
-                }
-                className="sm:col-span-2"
-              />
-            </dl>
+      <Tabs value={tab} onValueChange={changeTab}>
+        <TabsList className="mb-4">
+          <TabsTrigger value="profile">档案与联系人</TabsTrigger>
+          {showMembersTab ? (
+            <TabsTrigger value="members">监护成员</TabsTrigger>
           ) : null}
-        </section>
+          <TabsTrigger value="devices">设备与围栏</TabsTrigger>
+          <TabsTrigger value="data">数据记录</TabsTrigger>
+        </TabsList>
 
-        <section className="rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="紧急联系人"
-            description="联系人按优先级排列，最多一位主联系人。"
-            actions={
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={openContactsDialog}
-                disabled={contactsLoading || Boolean(contactsError)}
-              >
-                <Pencil />
-                编辑联系人
-              </Button>
-            }
-          />
-          {contactsLoading ? (
-            <div className="space-y-3 p-4">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="flex items-center justify-between gap-4"
-                >
-                  <div className="flex items-center gap-3">
-                    <Skeleton className="size-8 rounded-full" />
-                    <div>
-                      <Skeleton className="h-4 w-24" />
-                      <Skeleton className="mt-1.5 h-3 w-32" />
+        <TabsContent value="profile" className="mt-0">
+          <div className="grid gap-4 xl:grid-cols-[1.2fr_0.8fr]">
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="档案信息"
+                description="老人的基础档案和健康记录。"
+                actions={
+                  canEditProfile ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => {
+                        if (elderId !== null) {
+                          router.push(`/elders/edit?id=${elderId}`);
+                        }
+                      }}
+                      disabled={elderId === null}
+                    >
+                      <Pencil />
+                      编辑
+                    </Button>
+                  ) : null
+                }
+              />
+              {profileLoading ? (
+                <div className="grid gap-4 p-4 sm:grid-cols-2">
+                  {Array.from({ length: 8 }).map((_, index) => (
+                    <div key={index}>
+                      <Skeleton className="h-3 w-16" />
+                      <Skeleton className="mt-2 h-4 w-28" />
                     </div>
-                  </div>
-                  <Skeleton className="h-3 w-12" />
+                  ))}
                 </div>
-              ))}
-            </div>
-          ) : contactsError ? (
-            <ErrorState
-              message={contactsError}
-              onRetry={() => void loadContacts()}
-            />
-          ) : contacts.length === 0 ? (
-            <EmptyState
-              title="暂无紧急联系人"
-              description="添加联系人后，发生告警时可以按优先级进行通知。"
-              action={
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={openContactsDialog}
-                >
-                  <Plus />
-                  添加联系人
-                </Button>
-              }
-            />
-          ) : (
-            <ul className="divide-y divide-line">
-              {contacts.map((contact) => (
-                <li
-                  key={contact.id}
-                  className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div className="flex min-w-0 items-center gap-3">
-                    <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info/12 text-info">
-                      <UserRound className="size-4" aria-hidden="true" />
-                    </span>
-                    <div className="min-w-0">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[13px] font-medium text-ink">
-                          {contact.name}
-                        </span>
-                        {contact.is_primary ? (
-                          <Badge tone="brand">主联系人</Badge>
-                        ) : null}
+              ) : profileError ? (
+                <ErrorState
+                  message={profileError}
+                  onRetry={() => void loadProfile()}
+                />
+              ) : elder ? (
+                <dl className="grid gap-x-6 gap-y-5 p-4 sm:grid-cols-2">
+                  <InfoItem label="姓名" value={elder.name} />
+                  <InfoItem label="性别" value={genderLabel(elder.gender)} />
+                  <InfoItem
+                    label="出生日期"
+                    value={toLocalInputValue(elder.birth_date) || "—"}
+                  />
+                  <InfoItem
+                    label="身高 / 体重"
+                    value={
+                      elder.height_cm === null && elder.weight_kg === null
+                        ? "—"
+                        : [
+                            elder.height_cm === null
+                              ? null
+                              : `${elder.height_cm} cm`,
+                            elder.weight_kg === null
+                              ? null
+                              : `${elder.weight_kg} kg`,
+                          ]
+                            .filter(Boolean)
+                            .join(" / ")
+                    }
+                  />
+                  <InfoItem
+                    label="地址"
+                    value={elder.address || "—"}
+                    className="sm:col-span-2"
+                  />
+                  <InfoItem
+                    label="备注"
+                    value={
+                      <span className="whitespace-pre-wrap">
+                        {elder.notes || "—"}
+                      </span>
+                    }
+                    className="sm:col-span-2"
+                  />
+                </dl>
+              ) : null}
+            </section>
+
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="紧急联系人"
+                description="联系人按优先级排列，最多一位主联系人。"
+                actions={
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={openContactsDialog}
+                    disabled={contactsLoading || Boolean(contactsError)}
+                  >
+                    <Pencil />
+                    编辑联系人
+                  </Button>
+                }
+              />
+              {contactsLoading ? (
+                <div className="space-y-3 p-4">
+                  {Array.from({ length: 3 }).map((_, index) => (
+                    <div
+                      key={index}
+                      className="flex items-center justify-between gap-4"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Skeleton className="size-8 rounded-full" />
+                        <div>
+                          <Skeleton className="h-4 w-24" />
+                          <Skeleton className="mt-1.5 h-3 w-32" />
+                        </div>
                       </div>
-                      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-muted">
-                        <span>
-                          {labelOf(
-                            RELATION_LABELS,
-                            contact.relation,
-                            "关系未填写"
-                          )}
+                      <Skeleton className="h-3 w-12" />
+                    </div>
+                  ))}
+                </div>
+              ) : contactsError ? (
+                <ErrorState
+                  message={contactsError}
+                  onRetry={() => void loadContacts()}
+                />
+              ) : contacts.length === 0 ? (
+                <EmptyState
+                  title="暂无紧急联系人"
+                  description="添加联系人后，发生告警时可以按优先级进行通知。"
+                  action={
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={openContactsDialog}
+                    >
+                      <Plus />
+                      添加联系人
+                    </Button>
+                  }
+                />
+              ) : (
+                <ul className="divide-y divide-line">
+                  {contacts.map((contact) => (
+                    <li
+                      key={contact.id}
+                      className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="flex size-8 shrink-0 items-center justify-center rounded-full bg-info/12 text-info">
+                          <UserRound className="size-4" aria-hidden="true" />
                         </span>
-                        <span className="inline-flex items-center gap-1">
-                          <Phone className="size-3" aria-hidden="true" />
-                          {contact.phone}
-                        </span>
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-[13px] font-medium text-ink">
+                              {contact.name}
+                            </span>
+                            {contact.is_primary ? (
+                              <Badge tone="brand">主联系人</Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-0.5 flex flex-wrap items-center gap-x-2 text-[12px] text-ink-muted">
+                            <span>
+                              {labelOf(
+                                RELATION_LABELS,
+                                contact.relation,
+                                "关系未填写"
+                              )}
+                            </span>
+                            <span className="inline-flex items-center gap-1">
+                              <Phone className="size-3" aria-hidden="true" />
+                              {contact.phone}
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+                      <span className="text-[12px] tabular-nums text-ink-muted">
+                        优先级 {contact.priority}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+
+        {showMembersTab ? (
+          <TabsContent value="members" className="mt-0">
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="监护成员"
+                description="主照护者可添加、调整或移除成员；普通成员只能查看这位老人的数据。"
+              />
+              {membersLoading ? (
+                <TableWrapper className="rounded-none border-0">
+                  <TableSkeleton rows={3} columns={5} />
+                </TableWrapper>
+              ) : membersError ? (
+                <ErrorState
+                  message={membersError}
+                  onRetry={() => void loadMembers()}
+                />
+              ) : (
+                <div>
+                  {members.length === 0 ? (
+                    <EmptyState
+                      title="暂未授权家属"
+                      description="添加一位家属账号后，该账号即可看到这位老人的数据。"
+                    />
+                  ) : (
+                    <TableWrapper className="rounded-none border-0">
+                      <Table className="min-w-[880px]">
+                        <THead>
+                          <TR className="hover:bg-transparent">
+                            <TH>账号</TH>
+                            <TH>显示名</TH>
+                            <TH>关系</TH>
+                            <TH>角色</TH>
+                            <TH className="text-right">操作</TH>
+                          </TR>
+                        </THead>
+                        <TBody>
+                          {members.map((member) => (
+                            <TR key={member.user_id}>
+                              <TD className="font-medium text-ink">
+                                <div className="flex items-center gap-2">
+                                  <span>{member.username}</span>
+                                  {session &&
+                                  member.username === session.username ? (
+                                    <Badge tone="info">我</Badge>
+                                  ) : null}
+                                </div>
+                              </TD>
+                              <TD className="text-ink-muted">
+                                {member.display_name ?? "—"}
+                              </TD>
+                              <TD className="text-ink-muted">
+                                {labelOf(RELATION_LABELS, member.relation, "—")}
+                              </TD>
+                              <TD>
+                                <ElderRoleBadge role={member.role} />
+                              </TD>
+                              <TD>
+                                <div className="flex items-center justify-end gap-2">
+                                  <Select
+                                    value={member.role}
+                                    onValueChange={(value) =>
+                                      void saveMembers(
+                                        members.map((item) => ({
+                                          user_id: item.user_id,
+                                          role:
+                                            item.user_id === member.user_id
+                                              ? (value as "owner" | "member")
+                                              : item.role,
+                                          relation: item.relation,
+                                        }))
+                                      )
+                                    }
+                                    options={[
+                                      { value: "owner", label: "主照护者" },
+                                      { value: "member", label: "普通成员" },
+                                    ]}
+                                    disabled={savingMember}
+                                    className="w-32"
+                                    aria-label={`设置 ${member.username} 的角色`}
+                                  />
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    disabled={savingMember || members.length <= 1}
+                                    onClick={() =>
+                                      void saveMembers(
+                                        members
+                                          .filter(
+                                            (item) =>
+                                              item.user_id !== member.user_id
+                                          )
+                                          .map((item) => ({
+                                            user_id: item.user_id,
+                                            role: item.role,
+                                            relation: item.relation,
+                                          }))
+                                      )
+                                    }
+                                  >
+                                    <Trash2 />
+                                    移除
+                                  </Button>
+                                </div>
+                              </TD>
+                            </TR>
+                          ))}
+                        </TBody>
+                      </Table>
+                    </TableWrapper>
+                  )}
+
+                  <div className="border-t border-line px-4 py-4">
+                    <form
+                      className="flex flex-wrap items-end gap-3"
+                      onSubmit={(event) => {
+                        event.preventDefault();
+                        void searchCandidates();
+                      }}
+                    >
+                      <div className="flex min-w-[240px] flex-col gap-1.5">
+                        <Label htmlFor="member-candidate-query" className="mb-0">
+                          搜索家属账号
+                        </Label>
+                        <div className="relative">
+                          <Search
+                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+                            aria-hidden="true"
+                          />
+                          <Input
+                            id="member-candidate-query"
+                            value={candidateQuery}
+                            maxLength={32}
+                            className="pl-9"
+                            placeholder="账号或显示名关键字"
+                            onChange={(event) =>
+                              setCandidateQuery(event.target.value)
+                            }
+                          />
+                        </div>
+                      </div>
+                      <Button
+                        type="submit"
+                        variant="secondary"
+                        size="md"
+                        disabled={candidatesLoading || !candidateQuery.trim()}
+                        aria-busy={candidatesLoading}
+                      >
+                        <Search />
+                        {candidatesLoading ? "搜索中…" : "搜索"}
+                      </Button>
+                    </form>
+
+                    <FieldError>{candidatesError}</FieldError>
+                    {candidatesSearched &&
+                    !candidatesLoading &&
+                    !candidatesError &&
+                    availableCandidates.length === 0 ? (
+                      <p className="mt-2 text-[12px] text-ink-muted">
+                        没有找到可添加的家属账号。
                       </p>
+                    ) : null}
+
+                    <div className="mt-3 flex flex-wrap items-end gap-3">
+                      <div className="flex min-w-[220px] flex-col gap-1.5">
+                        <span className="text-[12px] text-ink-muted">
+                          候选账号
+                        </span>
+                        <Select
+                          value={memberUserId}
+                          onValueChange={setMemberUserId}
+                          options={availableCandidates.map((candidate) => ({
+                            value: String(candidate.id),
+                            label: candidate.display_name
+                              ? `${candidate.display_name}（${candidate.username}）`
+                              : candidate.username,
+                          }))}
+                          placeholder={
+                            candidatesSearched
+                              ? "选择候选账号"
+                              : "先搜索候选账号"
+                          }
+                          disabled={availableCandidates.length === 0}
+                          className="w-56"
+                          aria-label="选择要添加的家属账号"
+                        />
+                      </div>
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[12px] text-ink-muted">角色</span>
+                        <Select
+                          value={memberRole}
+                          onValueChange={(value) =>
+                            setMemberRole(value as "owner" | "member")
+                          }
+                          options={[
+                            { value: "member", label: "普通成员" },
+                            { value: "owner", label: "主照护者" },
+                          ]}
+                          className="w-32"
+                          aria-label="新成员角色"
+                        />
+                      </div>
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        disabled={!memberUserId || savingMember}
+                        onClick={() => {
+                          const userId = Number(memberUserId);
+                          if (!userId) return;
+                          void saveMembers([
+                            ...members.map((item) => ({
+                              user_id: item.user_id,
+                              role: item.role,
+                              relation: item.relation,
+                            })),
+                            { user_id: userId, role: memberRole, relation: null },
+                          ]);
+                          setMemberUserId("");
+                          setMemberRole("member");
+                        }}
+                      >
+                        <Plus />
+                        添加
+                      </Button>
                     </div>
                   </div>
-                  <span className="text-[12px] tabular-nums text-ink-muted">
-                    优先级 {contact.priority}
-                  </span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-      </div>
+                </div>
+              )}
+            </section>
+          </TabsContent>
+        ) : null}
 
-      {canManageMembers ? (
-        <section className="mt-4 rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="监护成员"
-            description="主照护者可添加、调整或移除成员；普通成员只能查看这位老人的数据。"
-          />
-          {membersLoading ? (
-            <TableWrapper className="rounded-none border-0">
-              <TableSkeleton rows={3} columns={5} />
-            </TableWrapper>
-          ) : membersError ? (
-            <ErrorState
-              message={membersError}
-              onRetry={() => void loadMembers()}
-            />
-          ) : (
-            <div>
-              {members.length === 0 ? (
+        <TabsContent value="devices" className="mt-0">
+          <div className="grid gap-4 xl:grid-cols-2">
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="绑定设备"
+                description="与该老人关联的监护终端。"
+              />
+              {devicesLoading ? (
+                <TableWrapper className="rounded-none border-0">
+                  <TableSkeleton rows={3} columns={5} />
+                </TableWrapper>
+              ) : devicesError ? (
+                <ErrorState
+                  message={devicesError}
+                  onRetry={() => void loadDevices()}
+                />
+              ) : devices.length === 0 ? (
                 <EmptyState
-                  title="暂未授权家属"
-                  description="添加一位家属账号后，该账号即可看到这位老人的数据。"
+                  title="暂无绑定设备"
+                  description={
+                    isAdmin
+                      ? "前往设备管理页面注册并绑定监护终端。"
+                      : "当前老人还没有绑定设备，请联系管理员完成绑定。"
+                  }
                 />
               ) : (
                 <TableWrapper className="rounded-none border-0">
-                  <Table className="min-w-[880px]">
+                  <Table className="min-w-[680px]">
                     <THead>
                       <TR className="hover:bg-transparent">
-                        <TH>账号</TH>
-                        <TH>显示名</TH>
-                        <TH>关系</TH>
-                        <TH>角色</TH>
-                        <TH className="text-right">操作</TH>
+                        <TH>设备 UID</TH>
+                        <TH>类型 / 型号</TH>
+                        <TH>状态</TH>
+                        <TH>电量</TH>
+                        <TH>最近上报</TH>
                       </TR>
                     </THead>
                     <TBody>
-                      {members.map((member) => (
-                        <TR key={member.user_id}>
+                      {devices.map((device) => (
+                        <TR key={device.id}>
                           <TD className="font-medium text-ink">
-                            <div className="flex items-center gap-2">
-                              <span>{member.username}</span>
-                              {session &&
-                              member.username === session.username ? (
-                                <Badge tone="info">我</Badge>
-                              ) : null}
-                            </div>
+                            {device.device_uid}
                           </TD>
                           <TD className="text-ink-muted">
-                            {member.display_name ?? "—"}
-                          </TD>
-                          <TD className="text-ink-muted">
-                            {labelOf(RELATION_LABELS, member.relation, "—")}
-                          </TD>
-                          <TD>
-                            <ElderRoleBadge role={member.role} />
+                            {[device.kind, device.model]
+                              .filter(Boolean)
+                              .join(" / ") || "—"}
                           </TD>
                           <TD>
-                            <div className="flex items-center justify-end gap-2">
-                              <Select
-                                value={member.role}
-                                onValueChange={(value) =>
-                                  void saveMembers(
-                                    members.map((item) => ({
-                                      user_id: item.user_id,
-                                      role:
-                                        item.user_id === member.user_id
-                                          ? (value as "owner" | "member")
-                                          : item.role,
-                                      relation: item.relation,
-                                    }))
-                                  )
-                                }
-                                options={[
-                                  { value: "owner", label: "主照护者" },
-                                  { value: "member", label: "普通成员" },
-                                ]}
-                                disabled={savingMember}
-                                className="w-32"
-                                aria-label={`设置 ${member.username} 的角色`}
+                            <DeviceStatusBadge status={device.status} />
+                          </TD>
+                          <TD className="whitespace-nowrap tabular-nums text-ink-muted">
+                            <span className="inline-flex items-center gap-1">
+                              <BatteryMedium
+                                className="size-3.5"
+                                aria-hidden="true"
                               />
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                disabled={savingMember || members.length <= 1}
-                                onClick={() =>
-                                  void saveMembers(
-                                    members
-                                      .filter(
-                                        (item) =>
-                                          item.user_id !== member.user_id
-                                      )
-                                      .map((item) => ({
-                                        user_id: item.user_id,
-                                        role: item.role,
-                                        relation: item.relation,
-                                      }))
-                                  )
-                                }
-                              >
-                                <Trash2 />
-                                移除
-                              </Button>
-                            </div>
+                              {device.battery_percent === null
+                                ? "—"
+                                : `${device.battery_percent}%`}
+                            </span>
+                          </TD>
+                          <TD className="whitespace-nowrap text-ink-muted">
+                            {formatDateTime(device.last_seen_at)}
                           </TD>
                         </TR>
                       ))}
@@ -1079,359 +1319,173 @@ export function ElderDetailClient() {
                   </Table>
                 </TableWrapper>
               )}
+            </section>
 
-              <div className="border-t border-line px-4 py-4">
-                <form
-                  className="flex flex-wrap items-end gap-3"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void searchCandidates();
-                  }}
-                >
-                  <div className="flex min-w-[240px] flex-col gap-1.5">
-                    <Label htmlFor="member-candidate-query" className="mb-0">
-                      搜索家属账号
-                    </Label>
-                    <div className="relative">
-                      <Search
-                        className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-                        aria-hidden="true"
-                      />
-                      <Input
-                        id="member-candidate-query"
-                        value={candidateQuery}
-                        maxLength={32}
-                        className="pl-9"
-                        placeholder="账号或显示名关键字"
-                        onChange={(event) =>
-                          setCandidateQuery(event.target.value)
-                        }
-                      />
-                    </div>
-                  </div>
-                  <Button
-                    type="submit"
-                    variant="secondary"
-                    size="md"
-                    disabled={candidatesLoading || !candidateQuery.trim()}
-                    aria-busy={candidatesLoading}
-                  >
-                    <Search />
-                    {candidatesLoading ? "搜索中…" : "搜索"}
-                  </Button>
-                </form>
+            {elderId !== null ? (
+              <GeofenceEditor elderId={elderId} elderName={elder?.name} />
+            ) : null}
+          </div>
+        </TabsContent>
 
-                <FieldError>{candidatesError}</FieldError>
-                {candidatesSearched &&
-                !candidatesLoading &&
-                !candidatesError &&
-                availableCandidates.length === 0 ? (
-                  <p className="mt-2 text-[12px] text-ink-muted">
-                    没有找到可添加的家属账号。
-                  </p>
-                ) : null}
-
-                <div className="mt-3 flex flex-wrap items-end gap-3">
-                  <div className="flex min-w-[220px] flex-col gap-1.5">
-                    <span className="text-[12px] text-ink-muted">
-                      候选账号
-                    </span>
-                    <Select
-                      value={memberUserId}
-                      onValueChange={setMemberUserId}
-                      options={availableCandidates.map((candidate) => ({
-                        value: String(candidate.id),
-                        label: candidate.display_name
-                          ? `${candidate.display_name}（${candidate.username}）`
-                          : candidate.username,
-                      }))}
-                      placeholder={
-                        candidatesSearched
-                          ? "选择候选账号"
-                          : "先搜索候选账号"
-                      }
-                      disabled={availableCandidates.length === 0}
-                      className="w-56"
-                      aria-label="选择要添加的家属账号"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <span className="text-[12px] text-ink-muted">角色</span>
-                    <Select
-                      value={memberRole}
-                      onValueChange={(value) =>
-                        setMemberRole(value as "owner" | "member")
-                      }
-                      options={[
-                        { value: "member", label: "普通成员" },
-                        { value: "owner", label: "主照护者" },
-                      ]}
-                      className="w-32"
-                      aria-label="新成员角色"
-                    />
-                  </div>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    disabled={!memberUserId || savingMember}
-                    onClick={() => {
-                      const userId = Number(memberUserId);
-                      if (!userId) return;
-                      void saveMembers([
-                        ...members.map((item) => ({
-                          user_id: item.user_id,
-                          role: item.role,
-                          relation: item.relation,
-                        })),
-                        { user_id: userId, role: memberRole, relation: null },
-                      ]);
-                      setMemberUserId("");
-                      setMemberRole("member");
-                    }}
-                  >
-                    <Plus />
-                    添加
-                  </Button>
-                </div>
-              </div>
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <section className="rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="绑定设备"
-            description="与该老人关联的监护终端。"
-          />
-          {devicesLoading ? (
-            <TableWrapper className="rounded-none border-0">
-              <TableSkeleton rows={3} columns={5} />
-            </TableWrapper>
-          ) : devicesError ? (
-            <ErrorState
-              message={devicesError}
-              onRetry={() => void loadDevices()}
+        <TabsContent value="data" className="mt-0">
+          <section className="rounded-[8px] border border-line bg-panel">
+            <SectionHeader
+              title="最近遥测"
+              description="按记录时间倒序，显示最近 20 条设备上报数据。"
             />
-          ) : devices.length === 0 ? (
-            <EmptyState
-              title="暂无绑定设备"
-              description={
-                isAdmin
-                  ? "前往设备管理页面注册并绑定监护终端。"
-                  : "当前老人还没有绑定设备，请联系管理员完成绑定。"
-              }
-            />
-          ) : (
-            <TableWrapper className="rounded-none border-0">
-              <Table className="min-w-[680px]">
-                <THead>
-                  <TR className="hover:bg-transparent">
-                    <TH>设备 UID</TH>
-                    <TH>类型 / 型号</TH>
-                    <TH>状态</TH>
-                    <TH>电量</TH>
-                    <TH>最近上报</TH>
-                  </TR>
-                </THead>
-                <TBody>
-                  {devices.map((device) => (
-                    <TR key={device.id}>
-                      <TD className="font-medium text-ink">
-                        {device.device_uid}
-                      </TD>
-                      <TD className="text-ink-muted">
-                        {[device.kind, device.model]
-                          .filter(Boolean)
-                          .join(" / ") || "—"}
-                      </TD>
-                      <TD>
-                        <DeviceStatusBadge status={device.status} />
-                      </TD>
-                      <TD className="whitespace-nowrap tabular-nums text-ink-muted">
-                        <span className="inline-flex items-center gap-1">
-                          <BatteryMedium
-                            className="size-3.5"
-                            aria-hidden="true"
-                          />
-                          {device.battery_percent === null
-                            ? "—"
-                            : `${device.battery_percent}%`}
-                        </span>
-                      </TD>
-                      <TD className="whitespace-nowrap text-ink-muted">
-                        {formatDateTime(device.last_seen_at)}
-                      </TD>
+            {telemetryLoading ? (
+              <TableWrapper className="rounded-none border-0">
+                <TableSkeleton rows={5} columns={5} />
+              </TableWrapper>
+            ) : telemetryError ? (
+              <ErrorState
+                message={telemetryError}
+                onRetry={() => void loadTelemetry()}
+              />
+            ) : telemetry.length === 0 ? (
+              <EmptyState
+                title="暂无遥测数据"
+                description="设备绑定并上报后，最近数据会显示在这里。"
+              />
+            ) : (
+              <TableWrapper className="rounded-none border-0">
+                <Table className="min-w-[760px]">
+                  <THead>
+                    <TR className="hover:bg-transparent">
+                      <TH>时间</TH>
+                      <TH>指标</TH>
+                      <TH>数值</TH>
+                      <TH>经纬度</TH>
+                      <TH>信号</TH>
                     </TR>
-                  ))}
-                </TBody>
-              </Table>
-            </TableWrapper>
-          )}
-        </section>
+                  </THead>
+                  <TBody>
+                    {telemetry.map((item) => (
+                      <TR key={item.id}>
+                        <TD className="whitespace-nowrap text-ink-muted">
+                          {formatDateTime(item.recorded_at)}
+                        </TD>
+                        <TD>{labelOf(METRIC_LABELS, item.metric)}</TD>
+                        <TD className="tabular-nums">{telemetryValue(item)}</TD>
+                        <TD className="whitespace-nowrap tabular-nums text-ink-muted">
+                          {telemetryLocation(item)}
+                        </TD>
+                        <TD className="whitespace-nowrap tabular-nums text-ink-muted">
+                          {telemetrySignal(item)}
+                        </TD>
+                      </TR>
+                    ))}
+                  </TBody>
+                </Table>
+              </TableWrapper>
+            )}
+          </section>
 
-        {elderId !== null ? (
-          <GeofenceEditor elderId={elderId} elderName={elder?.name} />
-        ) : null}
-      </div>
+          <div className="mt-4 grid gap-4 xl:grid-cols-2">
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="最近事件"
+                description="设备上报的原始事件记录，按时间倒序。"
+              />
+              {eventsLoading ? (
+                <TableWrapper className="rounded-none border-0">
+                  <TableSkeleton rows={5} columns={3} />
+                </TableWrapper>
+              ) : eventsError ? (
+                <ErrorState
+                  message={eventsError}
+                  onRetry={() => void loadEvents()}
+                />
+              ) : events.length === 0 ? (
+                <EmptyState
+                  title="暂无事件记录"
+                  description="设备触发跌倒、SOS 或围栏越界后会显示在这里。"
+                />
+              ) : (
+                <TableWrapper className="rounded-none border-0">
+                  <Table className="min-w-[520px]">
+                    <THead>
+                      <TR className="hover:bg-transparent">
+                        <TH>时间</TH>
+                        <TH>类型</TH>
+                        <TH>等级</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {events.map((event) => (
+                        <TR key={event.id}>
+                          <TD className="whitespace-nowrap text-ink-muted">
+                            {formatDateTime(event.occurred_at)}
+                          </TD>
+                          <TD>
+                            <EventTypeBadge type={event.type} />
+                          </TD>
+                          <TD>
+                            <SeverityBadge severity={event.severity} />
+                          </TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </TableWrapper>
+              )}
+            </section>
 
-      <section className="mt-4 rounded-[8px] border border-line bg-panel">
-        <SectionHeader
-          title="最近遥测"
-          description="按记录时间倒序，显示最近 20 条设备上报数据。"
-        />
-        {telemetryLoading ? (
-          <TableWrapper className="rounded-none border-0">
-            <TableSkeleton rows={5} columns={5} />
-          </TableWrapper>
-        ) : telemetryError ? (
-          <ErrorState
-            message={telemetryError}
-            onRetry={() => void loadTelemetry()}
-          />
-        ) : telemetry.length === 0 ? (
-          <EmptyState
-            title="暂无遥测数据"
-            description="设备绑定并上报后，最近数据会显示在这里。"
-          />
-        ) : (
-          <TableWrapper className="rounded-none border-0">
-            <Table className="min-w-[760px]">
-              <THead>
-                <TR className="hover:bg-transparent">
-                  <TH>时间</TH>
-                  <TH>指标</TH>
-                  <TH>数值</TH>
-                  <TH>经纬度</TH>
-                  <TH>信号</TH>
-                </TR>
-              </THead>
-              <TBody>
-                {telemetry.map((item) => (
-                  <TR key={item.id}>
-                    <TD className="whitespace-nowrap text-ink-muted">
-                      {formatDateTime(item.recorded_at)}
-                    </TD>
-                    <TD>{labelOf(METRIC_LABELS, item.metric)}</TD>
-                    <TD className="tabular-nums">{telemetryValue(item)}</TD>
-                    <TD className="whitespace-nowrap tabular-nums text-ink-muted">
-                      {telemetryLocation(item)}
-                    </TD>
-                    <TD className="whitespace-nowrap tabular-nums text-ink-muted">
-                      {telemetrySignal(item)}
-                    </TD>
-                  </TR>
-                ))}
-              </TBody>
-            </Table>
-          </TableWrapper>
-        )}
-      </section>
-
-      <div className="mt-4 grid gap-4 xl:grid-cols-2">
-        <section className="rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="最近事件"
-            description="设备上报的原始事件记录，按时间倒序。"
-          />
-          {eventsLoading ? (
-            <TableWrapper className="rounded-none border-0">
-              <TableSkeleton rows={5} columns={3} />
-            </TableWrapper>
-          ) : eventsError ? (
-            <ErrorState
-              message={eventsError}
-              onRetry={() => void loadEvents()}
-            />
-          ) : events.length === 0 ? (
-            <EmptyState
-              title="暂无事件记录"
-              description="设备触发跌倒、SOS 或围栏越界后会显示在这里。"
-            />
-          ) : (
-            <TableWrapper className="rounded-none border-0">
-              <Table className="min-w-[520px]">
-                <THead>
-                  <TR className="hover:bg-transparent">
-                    <TH>时间</TH>
-                    <TH>类型</TH>
-                    <TH>等级</TH>
-                  </TR>
-                </THead>
-                <TBody>
-                  {events.map((event) => (
-                    <TR key={event.id}>
-                      <TD className="whitespace-nowrap text-ink-muted">
-                        {formatDateTime(event.occurred_at)}
-                      </TD>
-                      <TD>
-                        <EventTypeBadge type={event.type} />
-                      </TD>
-                      <TD>
-                        <SeverityBadge severity={event.severity} />
-                      </TD>
-                    </TR>
-                  ))}
-                </TBody>
-              </Table>
-            </TableWrapper>
-          )}
-        </section>
-
-        <section className="rounded-[8px] border border-line bg-panel">
-          <SectionHeader
-            title="最近告警"
-            description="基于事件生成的告警及处理状态。"
-          />
-          {alertsLoading ? (
-            <TableWrapper className="rounded-none border-0">
-              <TableSkeleton rows={5} columns={4} />
-            </TableWrapper>
-          ) : alertsError ? (
-            <ErrorState
-              message={alertsError}
-              onRetry={() => void loadAlerts()}
-            />
-          ) : alerts.length === 0 ? (
-            <EmptyState
-              title="暂无告警"
-              description="当前没有需要关注的告警记录。"
-            />
-          ) : (
-            <TableWrapper className="rounded-none border-0">
-              <Table className="min-w-[560px]">
-                <THead>
-                  <TR className="hover:bg-transparent">
-                    <TH>时间</TH>
-                    <TH>类型</TH>
-                    <TH>等级</TH>
-                    <TH>状态</TH>
-                  </TR>
-                </THead>
-                <TBody>
-                  {alerts.map((alert) => (
-                    <TR key={alert.id}>
-                      <TD className="whitespace-nowrap text-ink-muted">
-                        {formatDateTime(alert.created_at)}
-                      </TD>
-                      <TD>
-                        <EventTypeBadge type={alert.event_type} />
-                      </TD>
-                      <TD>
-                        <SeverityBadge severity={alert.severity} />
-                      </TD>
-                      <TD>
-                        <AlertStatusBadge status={alert.status} />
-                      </TD>
-                    </TR>
-                  ))}
-                </TBody>
-              </Table>
-            </TableWrapper>
-          )}
-        </section>
-      </div>
+            <section className="rounded-[8px] border border-line bg-panel">
+              <SectionHeader
+                title="最近告警"
+                description="基于事件生成的告警及处理状态。"
+              />
+              {alertsLoading ? (
+                <TableWrapper className="rounded-none border-0">
+                  <TableSkeleton rows={5} columns={4} />
+                </TableWrapper>
+              ) : alertsError ? (
+                <ErrorState
+                  message={alertsError}
+                  onRetry={() => void loadAlerts()}
+                />
+              ) : alerts.length === 0 ? (
+                <EmptyState
+                  title="暂无告警"
+                  description="当前没有需要关注的告警记录。"
+                />
+              ) : (
+                <TableWrapper className="rounded-none border-0">
+                  <Table className="min-w-[560px]">
+                    <THead>
+                      <TR className="hover:bg-transparent">
+                        <TH>时间</TH>
+                        <TH>类型</TH>
+                        <TH>等级</TH>
+                        <TH>状态</TH>
+                      </TR>
+                    </THead>
+                    <TBody>
+                      {alerts.map((alert) => (
+                        <TR key={alert.id}>
+                          <TD className="whitespace-nowrap text-ink-muted">
+                            {formatDateTime(alert.created_at)}
+                          </TD>
+                          <TD>
+                            <EventTypeBadge type={alert.event_type} />
+                          </TD>
+                          <TD>
+                            <SeverityBadge severity={alert.severity} />
+                          </TD>
+                          <TD>
+                            <AlertStatusBadge status={alert.status} />
+                          </TD>
+                        </TR>
+                      ))}
+                    </TBody>
+                  </Table>
+                </TableWrapper>
+              )}
+            </section>
+          </div>
+        </TabsContent>
+      </Tabs>
 
       <Dialog
         open={contactsOpen}

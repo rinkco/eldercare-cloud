@@ -287,7 +287,7 @@ export function OverviewClient() {
               href="/alerts"
               className="text-[13px] text-brand transition-colors hover:text-[#56c3a1]"
             >
-              前往告警中心
+              前往告警与事件
             </Link>
           </header>
           {loading ? (

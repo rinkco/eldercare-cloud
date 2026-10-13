@@ -25,7 +25,7 @@ export default defineConfig({
     {
       // 桌面宽屏档位只跑核心用例，避免全量用例重复执行
       name: "desktop-wide",
-      testMatch: /(auth|health|elder-view)\.spec\.ts/,
+      testMatch: /(auth|health|roles)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1920, height: 1080 },
@@ -34,7 +34,7 @@ export default defineConfig({
     {
       // 移动端档位只跑核心用例，验证 390×844 下的布局与交互
       name: "mobile-chromium",
-      testMatch: /(auth|elder-view)\.spec\.ts/,
+      testMatch: /(auth|roles)\.spec\.ts/,
       use: {
         ...devices["Pixel 7"],
         viewport: { width: 390, height: 844 },

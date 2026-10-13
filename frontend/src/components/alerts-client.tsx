@@ -3,7 +3,6 @@
 import { BellRing, Check, Eye, RefreshCw } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ConnectionIndicator } from "@/components/connection-indicator";
 import { ElderSelect, useElderList } from "@/components/elder-select";
 import { FilterBar, FilterField } from "@/components/filter-bar";
 import {
@@ -14,7 +13,6 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
-import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
@@ -96,7 +94,8 @@ function NotificationStatusBadge({ status }: { status: string }) {
   return <Badge tone={tone}>{labelOf(NOTIFICATION_STATUS_LABELS, status)}</Badge>;
 }
 
-export function AlertsClient() {
+/** 告警列表面板：作为「告警与事件」页的告警 Tab 内容渲染（页面标题由容器提供）。 */
+export function AlertsPanel() {
   const { session } = useAuth();
   const { subscribe } = useRealtime();
   const { toast } = useToast();
@@ -334,34 +333,6 @@ export function AlertsClient() {
 
   return (
     <div>
-      <PageHeader
-        title="告警中心"
-        actions={
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <span className="hidden sm:block">
-              <ConnectionIndicator />
-            </span>
-            <span className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 text-[12px] text-ink-muted">
-              <BellRing className="size-3.5 text-critical" aria-hidden="true" />
-              未处理
-              <span className="tabular-nums text-ink">{pendingCount}</span>
-            </span>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={refreshing}
-              onClick={() => {
-                setRefreshing(true);
-                void load({ showLoading: false, manualRefresh: true });
-              }}
-            >
-              <RefreshCw className={cn(refreshing && "animate-spin")} />
-              刷新
-            </Button>
-          </div>
-        }
-      />
-
       <FilterBar>
         <FilterField label="状态">
           <Select
@@ -395,6 +366,26 @@ export function AlertsClient() {
           />
         </FilterField>
       </FilterBar>
+
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <span className="inline-flex h-8 items-center gap-2 rounded-[6px] border border-line bg-panel px-3 text-[12px] text-ink-muted">
+          <BellRing className="size-3.5 text-critical" aria-hidden="true" />
+          未处理
+          <span className="tabular-nums text-ink">{pendingCount}</span>
+        </span>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={refreshing}
+          onClick={() => {
+            setRefreshing(true);
+            void load({ showLoading: false, manualRefresh: true });
+          }}
+        >
+          <RefreshCw className={cn(refreshing && "animate-spin")} />
+          刷新
+        </Button>
+      </div>
 
       {loading ? (
         <TableWrapper>

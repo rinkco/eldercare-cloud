@@ -1,9 +1,9 @@
 import type { Metadata } from "next";
 
-import { AlertsClient } from "@/components/alerts-client";
+import { AlertsEventsClient } from "@/components/alerts-events-client";
 
-export const metadata: Metadata = { title: "告警中心" };
+export const metadata: Metadata = { title: "告警与事件" };
 
 export default function AlertsPage() {
-  return <AlertsClient />;
+  return <AlertsEventsClient />;
 }

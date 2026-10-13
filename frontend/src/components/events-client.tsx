@@ -13,7 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { PageHeader } from "@/components/ui/page-header";
 import { Select } from "@/components/ui/select";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
@@ -95,7 +94,8 @@ function EventStatusBadge({ status }: { status: string }) {
   );
 }
 
-export function EventsClient() {
+/** 事件列表面板：作为「告警与事件」页的事件 Tab 内容渲染（页面标题由容器提供）。 */
+export function EventsPanel() {
   const { session } = useAuth();
   const { toast } = useToast();
   const { elders } = useElderList();
@@ -226,24 +226,6 @@ export function EventsClient() {
 
   return (
     <div>
-      <PageHeader
-        title="事件记录"
-        actions={
-          <Button
-            variant="secondary"
-            size="sm"
-            disabled={refreshing}
-            onClick={() => {
-              setRefreshing(true);
-              void load(false);
-            }}
-          >
-            <RefreshCw className={cn(refreshing && "animate-spin")} />
-            刷新
-          </Button>
-        }
-      />
-
       <FilterBar>
         <FilterField label="类型">
           <Select
@@ -313,7 +295,21 @@ export function EventsClient() {
 
       <div className="mb-3 flex items-center justify-between gap-3 text-[12px] text-ink-muted">
         <span>发生时间倒序</span>
-        <span className="tabular-nums">当前显示 {events.length} 条</span>
+        <div className="flex items-center gap-3">
+          <span className="tabular-nums">当前显示 {events.length} 条</span>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={refreshing}
+            onClick={() => {
+              setRefreshing(true);
+              void load(false);
+            }}
+          >
+            <RefreshCw className={cn(refreshing && "animate-spin")} />
+            刷新
+          </Button>
+        </div>
       </div>
 
       {loading ? (
