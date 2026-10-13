@@ -1,9 +1,11 @@
 # SPEC 03 — 管理台成员权限落地与前端信息架构优化
 
-> **Status:** 已实现（本地验收通过）
+> **Status:** 已实现（本地验收通过）—— 成员角色部分被 SPEC 04 修订，见下方修订记录
 > **Depends on:** SPEC 01、SPEC 02
 > **Date:** 2026-10-11
 > **Objective:** 在 Web 管理台落地家属 owner/member 两级权限的展示与操作边界，把告警与事件合并为单一入口、老人详情改分区 Tabs、移除长辈视图，并补齐管理员的账号-老人关联视图。
+
+> **修订记录（SPEC 04：`specs/04-unified-family-access.md`）：** 本规格引入的 owner / member 两级成员角色、角色徽章与门控、「至少保留一位 owner」约束、`ElderOut.my_role` 字段以及 `family-owner` 演示账号安排均已被 SPEC 04 取消：家属成员权限一致（关联即可查看、编辑与管理成员），`elder_access` 删除 `role` 列（迁移 0006），第三个快捷登录按钮改为测试账号 `laowang`。以下正文保留原始表述，冲突处以 SPEC 04 为准。
 
 ## 为什么需要这份规格
 
