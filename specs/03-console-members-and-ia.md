@@ -1,6 +1,6 @@
 # SPEC 03 — 管理台成员权限落地与前端信息架构优化
 
-> **Status:** 已批准
+> **Status:** 已实现（本地验收通过）
 > **Depends on:** SPEC 01、SPEC 02
 > **Date:** 2026-10-11
 > **Objective:** 在 Web 管理台落地家属 owner/member 两级权限的展示与操作边界，把告警与事件合并为单一入口、老人详情改分区 Tabs、移除长辈视图，并补齐管理员的账号-老人关联视图。
@@ -201,23 +201,23 @@
 
 ## 验收标准
 
-- [ ] `GET /api/v1/elders`、`POST /api/v1/elders`、`GET /api/v1/elders/{id}`、`PUT /api/v1/elders/{id}` 的响应都含 `my_role`，取值正确（admin → `admin`；family 按关联；新建者 → `owner`）。
-- [ ] `GET /api/v1/users/{user_id}/elders`：admin 200 且 `elder_id/name/role/relation` 完整；family 403；用户不存在 404。
-- [ ] 候选搜索接口：admin/owner 200；member 403；结果仅 family 且不含已有成员；`q` 越界（空/超 32 字）422；最多 10 条；owner 能搜索到 `family-guest`。
-- [ ] 后端 `docker compose exec -T backend python -m pytest -q` 全部通过（含新增用例）。
-- [ ] member 登录：老人列表无「编辑档案」按钮；详情页无「编辑档案」按钮、无「监护成员」Tab；直链 `?tab=members` 回落 `profile`；直链编辑页显示权限空态且无删除区；「编辑联系人」、围栏编辑、告警「确认」均可用。
-- [ ] owner 登录：列表对应行显示「主照护者」徽章与编辑入口；详情「监护成员」Tab 可查看、可搜索添加 `family-guest`、可调整角色、可移除（成员列表不可为空，family 操作时至少保留一位 owner）；自己一行带「我」标记；调整角色后 relation 保持不变；保存后立即生效。
-- [ ] admin 登录：用户列表出现「监护关系」列；抽屉正确列出关联老人与角色；原编辑账号流程不受影响。
-- [ ] 告警与事件：侧边导航只有「告警与事件」；`/alerts/` 默认告警 Tab；`?view=events` 直达事件 Tab；事件完整 Payload 可见；部署环境访问 `/events` 与 `/events/` 均 301 到 `/alerts/?view=events`（保留原有查询串；301 断言需在 nginx 容器上执行）。
-- [ ] 老人详情 4 个 Tab（admin/owner）/ 3 个（member）切换正常，`?tab=` 直达有效，各区块行为与改造前一致。
-- [ ] 长辈视图移除：除本规格自身的变更说明外，Web 代码、e2e、`specs/01-02`、README、`docs/business-flows.md` 中 `elder-view | 长辈视图` 0 命中；`docs/app-integration.md` 仅按保留清单处理；`/elder-view` 与 `/elder-view/` 均 301 回 `/`；导航无此项。
-- [ ] seed 之后（验收前需重跑 seed，把存量卷的 role/relation 收敛为配置值）：演示老人同时存在 `family`（member）与 `family-owner`（owner）两个关联；`family-guest` 未关联任何老人且可被候选搜索命中；登录页三个快捷登录按钮可用。
-- [ ] family 概览台「今日告警」卡 hint 为「今日新产生的告警」。
-- [ ] `npx tsc --noEmit` 无错误；`npm run build` 静态导出成功。
-- [ ] Playwright 全量通过（1440 全量；1920/390 核心档位更新后仍通过），含新增 `roles.spec.ts`。
-- [ ] `docker compose down -v` 后冷启动 `up -d --build`：frontend/backend/postgres/mosquitto 全部 healthy，`migrate` Exited (0)。
-- [ ] 响应式 1440×900、1920×1080、390×844 三档：新增列、抽屉与 Tabs 无溢出、无遮挡（表格允许局部横滚；含登录页三个快捷按钮的换行布局）。
-- [ ] 无障碍：新增控件（含右侧抽屉 `sheet`、Tabs）键盘可达、focus 可见、`aria-modal` 正确；合并页保留既有 `aria-label` 契约。
+- [x] `GET /api/v1/elders`、`POST /api/v1/elders`、`GET /api/v1/elders/{id}`、`PUT /api/v1/elders/{id}` 的响应都含 `my_role`，取值正确（admin → `admin`；family 按关联；新建者 → `owner`）。
+- [x] `GET /api/v1/users/{user_id}/elders`：admin 200 且 `elder_id/name/role/relation` 完整；family 403；用户不存在 404。
+- [x] 候选搜索接口：admin/owner 200；member 403；结果仅 family 且不含已有成员；`q` 越界（空/超 32 字）422；最多 10 条；owner 能搜索到 `family-guest`。
+- [x] 后端 `docker compose exec -T backend python -m pytest -q` 全部通过（含新增用例）。
+- [x] member 登录：老人列表无「编辑档案」按钮；详情页无「编辑档案」按钮、无「监护成员」Tab；直链 `?tab=members` 回落 `profile`；直链编辑页显示权限空态且无删除区；「编辑联系人」、围栏编辑、告警「确认」均可用。
+- [x] owner 登录：列表对应行显示「主照护者」徽章与编辑入口；详情「监护成员」Tab 可查看、可搜索添加 `family-guest`、可调整角色、可移除（成员列表不可为空，family 操作时至少保留一位 owner）；自己一行带「我」标记；调整角色后 relation 保持不变；保存后立即生效。
+- [x] admin 登录：用户列表出现「监护关系」列；抽屉正确列出关联老人与角色；原编辑账号流程不受影响。
+- [x] 告警与事件：侧边导航只有「告警与事件」；`/alerts/` 默认告警 Tab；`?view=events` 直达事件 Tab；事件完整 Payload 可见；部署环境访问 `/events` 与 `/events/` 均 301 到 `/alerts/?view=events`（保留原有查询串；301 断言需在 nginx 容器上执行）。
+- [x] 老人详情 4 个 Tab（admin/owner）/ 3 个（member）切换正常，`?tab=` 直达有效，各区块行为与改造前一致。
+- [x] 长辈视图移除：除本规格自身的变更说明外，Web 代码、e2e、`specs/01-02`、README、`docs/business-flows.md` 中 `elder-view | 长辈视图` 0 命中；`docs/app-integration.md` 仅按保留清单处理；`/elder-view` 与 `/elder-view/` 均 301 回 `/`；导航无此项。
+- [x] seed 之后（验收前需重跑 seed，把存量卷的 role/relation 收敛为配置值）：演示老人同时存在 `family`（member）与 `family-owner`（owner）两个关联；`family-guest` 未关联任何老人且可被候选搜索命中；登录页三个快捷登录按钮可用。
+- [x] family 概览台「今日告警」卡 hint 为「今日新产生的告警」。
+- [x] `npx tsc --noEmit` 无错误；`npm run build` 静态导出成功。
+- [x] Playwright 全量通过（1440 全量；1920/390 核心档位更新后仍通过），含新增 `roles.spec.ts`。
+- [x] `docker compose down -v` 后冷启动 `up -d --build`：frontend/backend/postgres/mosquitto 全部 healthy，`migrate` Exited (0)。
+- [x] 响应式 1440×900、1920×1080、390×844 三档：新增列、抽屉与 Tabs 无溢出、无遮挡（表格允许局部横滚；含登录页三个快捷按钮的换行布局）。
+- [x] 无障碍：新增控件（含右侧抽屉 `sheet`、Tabs）键盘可达、focus 可见、`aria-modal` 正确；合并页保留既有 `aria-label` 契约。
 
 ## 已定决策与已排除方案
 
