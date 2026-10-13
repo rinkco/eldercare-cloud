@@ -318,11 +318,13 @@ export function ElderDetailClient() {
   }, []);
 
   useEffect(() => {
-    // my_role 返回后才能判定成员分区可见性：member 直链 ?tab=members 在此回落
-    if (tab !== "members" || !elder || canManageMembers) return;
+    // 必须等档案加载结束（profileLoading 转 false，无论成功/失败）才能判定成员分区可见性：
+    // 此时仍无权管理成员（member，或 403/500/网络错误导致 my_role 未知）则回落档案分区，
+    // 保证错误态可见；加载完成前不回落，避免 admin/owner 直链被提前改写。
+    if (tab !== "members" || profileLoading || canManageMembers) return;
     replaceQueryParam("tab", "profile");
     setTab("profile");
-  }, [canManageMembers, elder, tab]);
+  }, [canManageMembers, profileLoading, tab]);
 
   const changeTab = useCallback((next: string) => {
     const parsed = parseDetailTab(next);
