@@ -298,8 +298,8 @@ def list_elder_access(
     response_model=list[AccessMemberOut],
     summary="整体替换监护成员（admin / 家属）",
     description=(
-        "整体替换：提交列表覆盖该老人全部监护成员，至少保留一位家属成员；"
-        "只能关联 family 账号，成员重复或列表为空返回 422。"
+        "整体替换：提交列表覆盖该老人全部监护成员，允许空列表（即取消全部绑定，SPEC 05）；"
+        "只能关联 family 账号，成员重复返回 422。"
     ),
 )
 def replace_elder_access(
@@ -309,7 +309,7 @@ def replace_elder_access(
     user: User = Depends(require_roles("admin", "family")),
     db: Session = Depends(get_db),
 ) -> list[AccessMemberOut]:
-    """admin 或该老人的家属成员整体替换监护成员，写审计 `update_elder_access`。"""
+    """admin 或该老人的家属成员整体替换监护成员（允许空列表，即取消全部绑定），写审计 `update_elder_access`。"""
     elder = get_elder_for_user(db, user, elder_id, for_update=True)
 
     user_ids = [item.user_id for item in payload]
@@ -317,11 +317,6 @@ def replace_elder_access(
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail="监护成员不能重复",
-        )
-    if not payload:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail="至少保留一位家属成员",
         )
 
     members: dict[int, User] = {}

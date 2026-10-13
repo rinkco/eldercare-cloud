@@ -349,7 +349,10 @@ def test_contacts_reject_multiple_primary(
 def test_access_grant_and_uniform_family_permissions(
     client: TestClient, db, seeded_users
 ) -> None:
-    """SPEC 04：家属成员权限一致——可编辑档案、可管理成员、不可删老人。"""
+    """SPEC 04：家属成员权限一致——可编辑档案、可管理成员、不可删老人。
+
+    SPEC 05：整体替换允许空列表（清空全部绑定）。
+    """
     admin_token = _login(
         client, seeded_users.admin.username, seeded_users.admin_password
     )
@@ -421,15 +424,15 @@ def test_access_grant_and_uniform_family_permissions(
         )
         assert replaced_by_family.status_code == 200
 
-        # 校验：列表不可为空、成员不重复、只能关联 family 账号、账号不存在 404
-        assert (
-            client.put(
-                f"/api/v1/elders/{elder_id}/access",
-                headers=_headers(admin_token),
-                json=[],
-            ).status_code
-            == 422
+        # SPEC 05：空列表表示清空全部绑定（取消最后一位成员），返回 200 与空列表
+        cleared = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(admin_token),
+            json=[],
         )
+        assert cleared.status_code == 200
+        assert cleared.json() == []
+        # 校验：成员不重复、只能关联 family 账号、账号不存在 404
         assert (
             client.put(
                 f"/api/v1/elders/{elder_id}/access",
@@ -472,7 +475,10 @@ def test_access_grant_and_uniform_family_permissions(
 def test_family_member_can_grant_and_revoke_members(
     client: TestClient, db, seeded_users
 ) -> None:
-    """SPEC 04：任意家属成员都可以添加与移除成员（不再限 owner）。"""
+    """SPEC 04：任意家属成员都可以添加与移除成员（不再限 owner）。
+
+    SPEC 05：最后一位成员也可以移除（清空列表，成员列表允许为空）。
+    """
     family_token = _login(
         client, seeded_users.family.username, seeded_users.family_password
     )
@@ -513,7 +519,7 @@ def test_family_member_can_grant_and_revoke_members(
             == 200
         )
 
-        # 被授予的成员可以反过来移除自己（列表保持不为空即可）
+        # 被授予的成员可以反过来移除自己
         revoked = client.put(
             f"/api/v1/elders/{elder_id}/access",
             headers=_headers(other_token),
@@ -525,6 +531,21 @@ def test_family_member_can_grant_and_revoke_members(
         assert (
             client.get(
                 f"/api/v1/elders/{elder_id}", headers=_headers(other_token)
+            ).status_code
+            == 403
+        )
+
+        # SPEC 05：最后一位成员也可以取消绑定（清空列表），随后失去访问
+        cleared = client.put(
+            f"/api/v1/elders/{elder_id}/access",
+            headers=_headers(family_token),
+            json=[],
+        )
+        assert cleared.status_code == 200
+        assert cleared.json() == []
+        assert (
+            client.get(
+                f"/api/v1/elders/{elder_id}", headers=_headers(family_token)
             ).status_code
             == 403
         )
