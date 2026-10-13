@@ -128,6 +128,17 @@ test.describe("主照护者（owner）权限", () => {
     );
     await expect(ownRow.getByText("我")).toBeVisible();
 
+    // 移除受限：把唯一的主照护者移出列表同样被这条守卫拒绝
+    // （「移除」按钮走同一个整体替换接口、前端不拦截，成本极低且天然幂等）
+    await ownRow.getByRole("button", { name: "移除" }).click();
+    await expect(page.getByText("至少保留一位主照护者")).toBeVisible();
+    await panel.getByRole("button", { name: "重试" }).click();
+    await expect(ownRow).toBeVisible();
+    await expect(ownRow.getByText("我")).toBeVisible();
+    await expect(memberRoleSelect(page, OWNER.username)).toContainText(
+      "主照护者"
+    );
+
     // 收尾：移除 family-guest，恢复 seed 的「候选账号未关联任何老人」状态
     await memberRow(page, GUEST_USERNAME)
       .getByRole("button", { name: "移除" })
@@ -169,8 +180,14 @@ test.describe("普通成员（member）权限", () => {
     // 联系人仍可编辑
     await expect(page.getByRole("button", { name: "编辑联系人" })).toBeVisible();
 
-    // 围栏仍可编辑
-    await page.getByRole("tab", { name: "设备与围栏" }).click();
+    // 围栏仍可编辑；顺带覆盖 Tabs 键盘可达（ArrowRight 移动焦点并随之激活）
+    await page.getByRole("tab", { name: "档案与联系人" }).focus();
+    await page.keyboard.press("ArrowRight");
+    await expect(page.getByRole("tab", { name: "设备与围栏" })).toBeFocused();
+    await expect(page.getByRole("tab", { name: "设备与围栏" })).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
     await expect(page.getByRole("button", { name: "保存围栏" })).toBeVisible();
 
     // 编辑页：权限空态，且没有删除区

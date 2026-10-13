@@ -40,6 +40,11 @@ test.describe("登录与权限", () => {
     await expect(page.getByRole("heading", { name: "概览台", level: 1 })).toBeVisible();
     await expect(page.getByRole("link", { name: "设备管理" })).toHaveCount(0);
     await expect(page.getByRole("link", { name: "用户列表" })).toHaveCount(0);
+    // 侧边导航收敛：只保留「告警与事件」，不再有「事件记录」
+    // 窄屏下侧栏是 CSS 隐藏的同一份 DOM（不进无障碍树），故按 DOM 文本断言信息架构契约
+    const nav = page.locator("aside nav");
+    await expect(nav).toContainText("告警与事件");
+    await expect(nav).not.toContainText("事件记录");
   });
 
   test("退出登录后回到登录页", async ({ page }) => {
