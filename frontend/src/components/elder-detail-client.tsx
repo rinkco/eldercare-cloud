@@ -302,10 +302,11 @@ export function ElderDetailClient() {
   const [savingMember, setSavingMember] = useState(false);
 
   const isAdmin = session?.role === "admin";
-  // SPEC 04：家属成员权限一致——能看到老人即可编辑档案、管理监护成员
+  // SPEC 04：能看到老人即可编辑档案；SPEC 06：成员增删收敛为仅 admin
   const canEditProfile = elder !== null;
-  const canManageMembers = isAdmin || canEditProfile;
-  const showMembersTab = canManageMembers;
+  const canManageMembers = isAdmin;
+  const canViewMembers = isAdmin || canEditProfile;
+  const showMembersTab = canViewMembers;
 
   const [tab, setTab] = useState<ElderDetailTab>("profile");
 
@@ -317,10 +318,10 @@ export function ElderDetailClient() {
     // 必须等档案加载结束（profileLoading 转 false，无论成功/失败）才能判定成员分区可见性：
     // 档案加载失败（无权/不存在）时不保留 ?tab=members，回落档案分区保证错误态可见；
     // 加载完成前不回落，避免直链被提前改写。
-    if (tab !== "members" || profileLoading || canManageMembers) return;
+    if (tab !== "members" || profileLoading || canViewMembers) return;
     replaceQueryParam("tab", "profile");
     setTab("profile");
-  }, [canManageMembers, profileLoading, tab]);
+  }, [canViewMembers, profileLoading, tab]);
 
   const changeTab = useCallback((next: string) => {
     const parsed = parseDetailTab(next);
@@ -497,7 +498,7 @@ export function ElderDetailClient() {
 
   const loadMembers = useCallback(
     async (signal?: AbortSignal) => {
-      if (!session || elderId === null || !canManageMembers) return;
+      if (!session || elderId === null || !canViewMembers) return;
       setMembersLoading(true);
       setMembersError(null);
       try {
@@ -513,7 +514,7 @@ export function ElderDetailClient() {
         if (!signal?.aborted) setMembersLoading(false);
       }
     },
-    [canManageMembers, elderId, session]
+    [canViewMembers, elderId, session]
   );
 
   const searchCandidates = useCallback(
@@ -599,11 +600,11 @@ export function ElderDetailClient() {
 
   // 成员的可见与请求都取决于是否能看到该老人（admin 或已关联家属）
   useEffect(() => {
-    if (idState !== "ready" || elderId === null || !canManageMembers) return;
+    if (idState !== "ready" || elderId === null || !canViewMembers) return;
     const controller = new AbortController();
     void loadMembers(controller.signal);
     return () => controller.abort();
-  }, [canManageMembers, elderId, idState, loadMembers]);
+  }, [canViewMembers, elderId, idState, loadMembers]);
 
   const openContactsDialog = () => {
     setDraftContacts(
@@ -866,6 +867,14 @@ export function ElderDetailClient() {
               ) : elder ? (
                 <dl className="grid gap-x-6 gap-y-5 p-4 sm:grid-cols-2">
                   <InfoItem label="姓名" value={elder.name} />
+                  <InfoItem
+                    label="手机号"
+                    value={
+                      <span className="tabular-nums">
+                        {elder.phone || "—"}
+                      </span>
+                    }
+                  />
                   <InfoItem label="性别" value={genderLabel(elder.gender)} />
                   <InfoItem
                     label="出生日期"
@@ -1011,7 +1020,11 @@ export function ElderDetailClient() {
             <section className="rounded-[8px] border border-line bg-panel">
               <SectionHeader
                 title="监护成员"
-                description="家属成员权限一致；可添加或移除能访问这位老人的账号。"
+                description={
+                  isAdmin
+                    ? "管理员可添加或移除能访问这位老人的账号。"
+                    : "可查看能访问这位老人的账号名单。"
+                }
               />
               {membersLoading ? (
                 <TableWrapper className="rounded-none border-0">
@@ -1024,20 +1037,31 @@ export function ElderDetailClient() {
                 />
               ) : (
                 <div>
+                  {!isAdmin ? (
+                    <p className="border-b border-line px-4 py-3 text-[12px] leading-5 text-ink-muted">
+                      成员管理仅管理员可用；可在「老人档案」中对这位老人取消绑定。
+                    </p>
+                  ) : null}
                   {members.length === 0 ? (
                     <EmptyState
                       title="暂未授权家属"
-                      description="添加一位家属账号后，该账号即可看到这位老人的数据。"
+                      description={
+                        isAdmin
+                          ? "添加一位家属账号后，该账号即可看到这位老人的数据。"
+                          : "这位老人暂无可查看的家属账号。"
+                      }
                     />
                   ) : (
                     <TableWrapper className="rounded-none border-0">
-                      <Table className="min-w-[880px]">
+                      <Table className={isAdmin ? "min-w-[880px]" : "min-w-[560px]"}>
                         <THead>
                           <TR className="hover:bg-transparent">
                             <TH>账号</TH>
                             <TH>显示名</TH>
                             <TH>关系</TH>
-                            <TH className="text-right">操作</TH>
+                            {isAdmin ? (
+                              <TH className="text-right">操作</TH>
+                            ) : null}
                           </TR>
                         </THead>
                         <TBody>
@@ -1058,31 +1082,33 @@ export function ElderDetailClient() {
                               <TD className="text-ink-muted">
                                 {labelOf(RELATION_LABELS, member.relation, "—")}
                               </TD>
-                              <TD>
-                                <div className="flex items-center justify-end gap-2">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    disabled={savingMember}
-                                    onClick={() =>
-                                      void saveMembers(
-                                        members
-                                          .filter(
-                                            (item) =>
-                                              item.user_id !== member.user_id
-                                          )
-                                          .map((item) => ({
-                                            user_id: item.user_id,
-                                            relation: item.relation,
-                                          }))
-                                      )
-                                    }
-                                  >
-                                    <Trash2 />
-                                    移除
-                                  </Button>
-                                </div>
-                              </TD>
+                              {isAdmin ? (
+                                <TD>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={savingMember}
+                                      onClick={() =>
+                                        void saveMembers(
+                                          members
+                                            .filter(
+                                              (item) =>
+                                                item.user_id !== member.user_id
+                                            )
+                                            .map((item) => ({
+                                              user_id: item.user_id,
+                                              relation: item.relation,
+                                            }))
+                                        )
+                                      }
+                                    >
+                                      <Trash2 />
+                                      移除
+                                    </Button>
+                                  </div>
+                                </TD>
+                              ) : null}
                             </TR>
                           ))}
                         </TBody>
@@ -1090,103 +1116,108 @@ export function ElderDetailClient() {
                     </TableWrapper>
                   )}
 
-                  <div className="border-t border-line px-4 py-4">
-                    <form
-                      className="flex flex-wrap items-end gap-3"
-                      onSubmit={(event) => {
-                        event.preventDefault();
-                        void searchCandidates();
-                      }}
-                    >
-                      <div className="flex min-w-[240px] flex-col gap-1.5">
-                        <Label htmlFor="member-candidate-query" className="mb-0">
-                          搜索家属账号
-                        </Label>
-                        <div className="relative">
-                          <Search
-                            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
-                            aria-hidden="true"
-                          />
-                          <Input
-                            id="member-candidate-query"
-                            value={candidateQuery}
-                            maxLength={32}
-                            className="pl-9"
-                            placeholder="账号或显示名关键字"
-                            onChange={(event) =>
-                              setCandidateQuery(event.target.value)
-                            }
-                          />
-                        </div>
-                      </div>
-                      <Button
-                        type="submit"
-                        variant="secondary"
-                        size="md"
-                        disabled={candidatesLoading || !candidateQuery.trim()}
-                        aria-busy={candidatesLoading}
-                      >
-                        <Search />
-                        {candidatesLoading ? "搜索中…" : "搜索"}
-                      </Button>
-                    </form>
-
-                    <FieldError>{candidatesError}</FieldError>
-                    {candidatesSearched &&
-                    !candidatesLoading &&
-                    !candidatesError &&
-                    availableCandidates.length === 0 ? (
-                      <p className="mt-2 text-[12px] text-ink-muted">
-                        没有找到可添加的家属账号。
-                      </p>
-                    ) : null}
-
-                    <div className="mt-3 flex flex-wrap items-end gap-3">
-                      <div className="flex min-w-[220px] flex-col gap-1.5">
-                        <span className="text-[12px] text-ink-muted">
-                          候选账号
-                        </span>
-                        <Select
-                          value={memberUserId}
-                          onValueChange={setMemberUserId}
-                          options={availableCandidates.map((candidate) => ({
-                            value: String(candidate.id),
-                            label: candidate.display_name
-                              ? `${candidate.display_name}（${candidate.username}）`
-                              : candidate.username,
-                          }))}
-                          placeholder={
-                            candidatesSearched
-                              ? "选择候选账号"
-                              : "先搜索候选账号"
-                          }
-                          disabled={availableCandidates.length === 0}
-                          className="w-56"
-                          aria-label="选择要添加的家属账号"
-                        />
-                      </div>
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        disabled={!memberUserId || savingMember}
-                        onClick={() => {
-                          const userId = Number(memberUserId);
-                          if (!userId) return;
-                          void saveMembers([
-                            ...members.map((item) => ({
-                              user_id: item.user_id,
-                              relation: item.relation,
-                            })),
-                            { user_id: userId, relation: null },
-                          ]);
-                          setMemberUserId("");
+                  {isAdmin ? (
+                    <div className="border-t border-line px-4 py-4">
+                      <form
+                        className="flex flex-wrap items-end gap-3"
+                        onSubmit={(event) => {
+                          event.preventDefault();
+                          void searchCandidates();
                         }}
                       >
-                        <Plus />
-                        添加
-                      </Button>
+                        <div className="flex min-w-[240px] flex-col gap-1.5">
+                          <Label
+                            htmlFor="member-candidate-query"
+                            className="mb-0"
+                          >
+                            搜索家属账号
+                          </Label>
+                          <div className="relative">
+                            <Search
+                              className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-ink-muted"
+                              aria-hidden="true"
+                            />
+                            <Input
+                              id="member-candidate-query"
+                              value={candidateQuery}
+                              maxLength={32}
+                              className="pl-9"
+                              placeholder="账号或显示名关键字"
+                              onChange={(event) =>
+                                setCandidateQuery(event.target.value)
+                              }
+                            />
+                          </div>
+                        </div>
+                        <Button
+                          type="submit"
+                          variant="secondary"
+                          size="md"
+                          disabled={candidatesLoading || !candidateQuery.trim()}
+                          aria-busy={candidatesLoading}
+                        >
+                          <Search />
+                          {candidatesLoading ? "搜索中…" : "搜索"}
+                        </Button>
+                      </form>
+
+                      <FieldError>{candidatesError}</FieldError>
+                      {candidatesSearched &&
+                      !candidatesLoading &&
+                      !candidatesError &&
+                      availableCandidates.length === 0 ? (
+                        <p className="mt-2 text-[12px] text-ink-muted">
+                          没有找到可添加的家属账号。
+                        </p>
+                      ) : null}
+
+                      <div className="mt-3 flex flex-wrap items-end gap-3">
+                        <div className="flex min-w-[220px] flex-col gap-1.5">
+                          <span className="text-[12px] text-ink-muted">
+                            候选账号
+                          </span>
+                          <Select
+                            value={memberUserId}
+                            onValueChange={setMemberUserId}
+                            options={availableCandidates.map((candidate) => ({
+                              value: String(candidate.id),
+                              label: candidate.display_name
+                                ? `${candidate.display_name}（${candidate.username}）`
+                                : candidate.username,
+                            }))}
+                            placeholder={
+                              candidatesSearched
+                                ? "选择候选账号"
+                                : "先搜索候选账号"
+                            }
+                            disabled={availableCandidates.length === 0}
+                            className="w-56"
+                            aria-label="选择要添加的家属账号"
+                          />
+                        </div>
+                        <Button
+                          variant="primary"
+                          size="sm"
+                          disabled={!memberUserId || savingMember}
+                          onClick={() => {
+                            const userId = Number(memberUserId);
+                            if (!userId) return;
+                            void saveMembers([
+                              ...members.map((item) => ({
+                                user_id: item.user_id,
+                                relation: item.relation,
+                              })),
+                              { user_id: userId, relation: null },
+                            ]);
+                            setMemberUserId("");
+                          }}
+                        >
+                          <Plus />
+                          添加
+                        </Button>
+                      </div>
                     </div>
-                  </div>
+                  ) : null}
                 </div>
               )}
             </section>

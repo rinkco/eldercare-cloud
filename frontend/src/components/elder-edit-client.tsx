@@ -40,6 +40,7 @@ const GENDER_OPTIONS = [
 
 interface ElderFormState {
   name: string;
+  phone: string;
   gender: string;
   birth_date: string;
   height_cm: string;
@@ -53,6 +54,7 @@ type IdState = "loading" | "create" | "edit" | "invalid";
 
 const EMPTY_FORM: ElderFormState = {
   name: "",
+  phone: "",
   gender: GENDER_UNSET,
   birth_date: "",
   height_cm: "",
@@ -60,6 +62,9 @@ const EMPTY_FORM: ElderFormState = {
   address: "",
   notes: "",
 };
+
+/** 老人手机号规则（SPEC 06）：11 位、1 开头且第二位为 3-9。 */
+const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 function charLength(value: string): number {
   return Array.from(value).length;
@@ -75,6 +80,7 @@ function normalizeGender(value: string | null): string {
 function formFromElder(elder: Elder): ElderFormState {
   return {
     name: elder.name,
+    phone: elder.phone ?? "",
     gender: normalizeGender(elder.gender),
     birth_date: toLocalInputValue(elder.birth_date),
     height_cm: elder.height_cm === null ? "" : String(elder.height_cm),
@@ -114,6 +120,14 @@ function validateForm(form: ElderFormState): FormErrors {
     errors.name = "请输入老人姓名。";
   } else if (charLength(name) > 64) {
     errors.name = "姓名不能超过 64 个字符。";
+  }
+
+  // SPEC 06：手机号新建必填、全局唯一，且不允许清空
+  const phone = form.phone.trim();
+  if (!phone) {
+    errors.phone = "请输入老人手机号。";
+  } else if (!PHONE_PATTERN.test(phone)) {
+    errors.phone = "请输入 11 位手机号。";
   }
 
   if (form.birth_date && !/^\d{4}-\d{2}-\d{2}$/.test(form.birth_date)) {
@@ -237,6 +251,7 @@ export function ElderEditClient() {
 
     const payload: ElderInput = {
       name: form.name.trim(),
+      phone: form.phone.trim(),
       gender: form.gender === GENDER_UNSET ? null : form.gender,
       birth_date: form.birth_date || null,
       height_cm: form.height_cm.trim() ? Number(form.height_cm) : null,
@@ -368,6 +383,29 @@ export function ElderEditClient() {
                 />
                 <div id="elder-name-error">
                   <FieldError>{errors.name}</FieldError>
+                </div>
+              </div>
+
+              <div>
+                <Label htmlFor="elder-phone">手机号 *</Label>
+                <Input
+                  id="elder-phone"
+                  type="tel"
+                  inputMode="numeric"
+                  maxLength={11}
+                  autoComplete="off"
+                  value={form.phone}
+                  placeholder="请输入 11 位手机号"
+                  aria-invalid={Boolean(errors.phone)}
+                  aria-describedby={
+                    errors.phone ? "elder-phone-error" : undefined
+                  }
+                  onChange={(event) =>
+                    updateField("phone", event.target.value.replace(/\D/g, ""))
+                  }
+                />
+                <div id="elder-phone-error">
+                  <FieldError>{errors.phone}</FieldError>
                 </div>
               </div>
 

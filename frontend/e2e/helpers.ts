@@ -17,6 +17,11 @@ export const TEST = {
   username: process.env.E2E_TEST_USERNAME ?? "laowang",
   password: process.env.E2E_TEST_PASSWORD ?? "123456",
 };
+// 未关联任何老人的家属账号：SPEC 06「按手机号添加老人」用例使用
+export const GUEST = {
+  username: process.env.E2E_GUEST_USERNAME ?? "family-guest",
+  password: process.env.E2E_GUEST_PASSWORD ?? "guest123456",
+};
 
 export async function login(
   page: Page,
@@ -32,6 +37,14 @@ export async function login(
 
 export function uniqueSuffix(): string {
   return Date.now().toString(36).slice(-6);
+}
+
+/** 生成符合 SPEC 06 规则的演示手机号（11 位、1 开头）。 */
+export function uniquePhone(): string {
+  const tail = `${String(Date.now()).slice(-6)}${Math.floor(Math.random() * 100)
+    .toString()
+    .padStart(2, "0")}`;
+  return `138${tail}`;
 }
 
 /**

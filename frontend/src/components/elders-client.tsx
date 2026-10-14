@@ -7,6 +7,8 @@ import {
   Pencil,
   Plus,
   Search,
+  UserMinus,
+  UserPlus,
   UserRound,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -15,7 +17,9 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { FilterBar, FilterField } from "@/components/filter-bar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
+import { ConfirmDialog } from "@/components/ui/confirm-dialog";
+import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { FieldError, Input, Label } from "@/components/ui/input";
 import { PageHeader } from "@/components/ui/page-header";
 import { EmptyState, ErrorState, TableSkeleton } from "@/components/ui/states";
 import {
@@ -28,12 +32,16 @@ import {
   TR,
 } from "@/components/ui/table";
 import { Tooltip } from "@/components/ui/tooltip";
-import { api } from "@/lib/api";
+import { useToast } from "@/components/ui/toast";
+import { api, ApiError } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { formatFullDateTime, toLocalInputValue } from "@/lib/format";
 import type { Elder } from "@/lib/types";
 
 const PAGE_SIZE = 10;
+
+/** 老人手机号规则（SPEC 06）：11 位、1 开头且第二位为 3-9。 */
+const PHONE_PATTERN = /^1[3-9]\d{9}$/;
 
 const GENDER_LABELS: Record<string, string> = {
   male: "男",
@@ -56,12 +64,22 @@ function bodyMeasurement(elder: Elder): string {
 
 export function EldersClient() {
   const { session } = useAuth();
+  const { toast } = useToast();
   const router = useRouter();
   const [elders, setElders] = useState<Elder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  // SPEC 06：按老人手机号「添加老人」
+  const [addOpen, setAddOpen] = useState(false);
+  const [addPhone, setAddPhone] = useState("");
+  const [addError, setAddError] = useState<string | null>(null);
+  const [adding, setAdding] = useState(false);
+  // SPEC 06：家属「取消绑定」（解除自己与该老人的绑定）
+  const [unbindTarget, setUnbindTarget] = useState<Elder | null>(null);
+  const [unbindError, setUnbindError] = useState<string | null>(null);
+  const [unbinding, setUnbinding] = useState(false);
 
   const isAdmin = session?.role === "admin";
 
@@ -98,6 +116,75 @@ export function EldersClient() {
     setPage(1);
   }, [search]);
 
+  const openAddDialog = () => {
+    setAddPhone("");
+    setAddError(null);
+    setAddOpen(true);
+  };
+
+  // SPEC 06：按老人手机号添加——家属自动绑定自己，管理员仅检索定位（不产生绑定）
+  const handleAddByPhone = async () => {
+    if (adding) return;
+    const phone = addPhone.trim();
+    if (!PHONE_PATTERN.test(phone)) {
+      setAddError("请输入 11 位手机号。");
+      return;
+    }
+    setAdding(true);
+    setAddError(null);
+    try {
+      const elder = await api.post<Elder>("/api/v1/elders/add-by-phone", {
+        phone,
+      });
+      setAddOpen(false);
+      toast({
+        title: isAdmin
+          ? `该老人已存在：${elder.name}`
+          : `已添加老人：${elder.name}`,
+        description: isAdmin
+          ? "仅定位已有档案，未产生绑定。"
+          : "已跳转到该老人的详情。",
+        variant: "success",
+      });
+      router.push(`/elders/detail?id=${elder.id}`);
+    } catch (caught: unknown) {
+      // 404 / 409 等后端 detail 直接内联展示在弹窗内
+      setAddError(
+        caught instanceof ApiError
+          ? caught.message
+          : "添加老人失败，请稍后重试。"
+      );
+    } finally {
+      setAdding(false);
+    }
+  };
+
+  // SPEC 06：取消绑定只解除当前账号与该老人的关联，档案与历史数据保留
+  const handleUnbind = async () => {
+    if (!unbindTarget || unbinding) return;
+    setUnbinding(true);
+    setUnbindError(null);
+    try {
+      await api.delete<void>(`/api/v1/elders/${unbindTarget.id}/access/me`);
+      const targetName = unbindTarget.name;
+      setUnbindTarget(null);
+      toast({
+        title: `已取消与${targetName}的绑定`,
+        description: "如需恢复，可用老人手机号重新添加。",
+        variant: "success",
+      });
+      await load();
+    } catch (caught: unknown) {
+      setUnbindError(
+        caught instanceof ApiError
+          ? caught.message
+          : "取消绑定失败，请稍后重试。"
+      );
+    } finally {
+      setUnbinding(false);
+    }
+  };
+
   const filteredElders = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase();
     if (!keyword) return elders;
@@ -130,13 +217,19 @@ export function EldersClient() {
       <PageHeader
         title="老人档案"
         actions={
-          <Button
-            variant="primary"
-            onClick={() => router.push("/elders/edit")}
-          >
-            <Plus />
-            新建老人
-          </Button>
+          <>
+            <Button variant="secondary" onClick={openAddDialog}>
+              <UserPlus />
+              添加老人
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => router.push("/elders/edit")}
+            >
+              <Plus />
+              新建老人
+            </Button>
+          </>
         }
       />
 
@@ -168,7 +261,7 @@ export function EldersClient() {
 
       {loading ? (
         <div className="rounded-[8px] border border-line bg-panel">
-          <TableSkeleton rows={6} columns={7} />
+          <TableSkeleton rows={6} columns={8} />
         </div>
       ) : error ? (
         <div className="rounded-[8px] border border-line bg-panel">
@@ -183,7 +276,7 @@ export function EldersClient() {
                 ? "请尝试更换姓名关键词，或清空搜索条件。"
                 : isAdmin
                   ? "新建第一份档案后，就能开始配置联系人和监护设备。"
-                  : "当前账号还没有关联老人，请联系管理员补充关联关系。"
+                  : "当前账号还没有关联老人，可凭老人手机号「添加老人」，或「新建老人」。"
             }
             action={
               !search.trim() ? (
@@ -200,10 +293,11 @@ export function EldersClient() {
         </div>
       ) : (
         <TableWrapper>
-          <Table className="min-w-[1040px]">
+          <Table className="min-w-[1160px]">
             <THead>
               <TR className="hover:bg-transparent">
                 <TH>姓名</TH>
+                <TH>手机号</TH>
                 <TH>性别</TH>
                 <TH>出生日期</TH>
                 <TH>身高 / 体重</TH>
@@ -222,6 +316,9 @@ export function EldersClient() {
                       </span>
                       <span className="font-medium text-ink">{elder.name}</span>
                     </div>
+                  </TD>
+                  <TD className="whitespace-nowrap tabular-nums text-ink-muted">
+                    {elder.phone || "—"}
                   </TD>
                   <TD className="text-ink-muted">
                     {genderLabel(elder.gender)}
@@ -269,6 +366,19 @@ export function EldersClient() {
                           <Pencil />
                         </Button>
                       </Tooltip>
+                      {!isAdmin ? (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => {
+                            setUnbindError(null);
+                            setUnbindTarget(elder);
+                          }}
+                        >
+                          <UserMinus />
+                          取消绑定
+                        </Button>
+                      ) : null}
                     </div>
                   </TD>
                 </TR>
@@ -310,6 +420,90 @@ export function EldersClient() {
           </div>
         </div>
       ) : null}
+
+      <Dialog
+        open={addOpen}
+        onOpenChange={(next) => {
+          if (adding) return;
+          setAddOpen(next);
+        }}
+      >
+        <DialogContent
+          title="添加老人"
+          description={
+            isAdmin
+              ? "输入老人手机号定位已有档案（管理员不产生绑定）。"
+              : "输入老人手机号，命中后将关联到当前账号。"
+          }
+        >
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void handleAddByPhone();
+            }}
+          >
+            <Label htmlFor="add-elder-phone">老人手机号</Label>
+            <Input
+              id="add-elder-phone"
+              type="tel"
+              inputMode="numeric"
+              maxLength={11}
+              autoComplete="off"
+              value={addPhone}
+              placeholder="请输入 11 位手机号"
+              aria-invalid={Boolean(addError)}
+              aria-describedby={addError ? "add-elder-phone-error" : undefined}
+              onChange={(event) => {
+                setAddPhone(event.target.value.replace(/\D/g, ""));
+                setAddError(null);
+              }}
+            />
+            <div id="add-elder-phone-error">
+              <FieldError>{addError}</FieldError>
+            </div>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={adding}
+                onClick={() => setAddOpen(false)}
+              >
+                取消
+              </Button>
+              <Button
+                type="submit"
+                variant="primary"
+                disabled={adding || !addPhone.trim()}
+                aria-busy={adding}
+              >
+                {adding ? "添加中…" : "确认添加"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      <ConfirmDialog
+        open={unbindTarget !== null}
+        onOpenChange={(next) => {
+          if (unbinding) return;
+          if (!next) {
+            setUnbindTarget(null);
+            setUnbindError(null);
+          }
+        }}
+        title="确认取消与这位老人的绑定？"
+        description="取消后你将不再看到这位老人的档案与数据；如需恢复，可用手机号重新添加。"
+        confirmText="取消绑定"
+        busy={unbinding}
+        onConfirm={() => void handleUnbind()}
+      >
+        {unbindError ? (
+          <p className="mb-3 text-[13px] text-critical" role="alert">
+            {unbindError}
+          </p>
+        ) : null}
+      </ConfirmDialog>
     </div>
   );
 }

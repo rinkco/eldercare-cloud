@@ -37,7 +37,7 @@ export interface UserElder {
   relation: string | null;
 }
 
-/** 可作为监护成员添加的候选家属账号（admin / 家属检索）。 */
+/** 可作为监护成员添加的候选家属账号（仅 admin 检索）。 */
 export interface AccessCandidate {
   id: number;
   username: string;
@@ -47,6 +47,8 @@ export interface AccessCandidate {
 export interface Elder {
   id: number;
   name: string;
+  /** 老人手机号（SPEC 06 起新建必填、全局唯一；存量档案可能为 null）。 */
+  phone: string | null;
   gender: string | null;
   birth_date: string | null;
   height_cm: number | null;
@@ -58,6 +60,8 @@ export interface Elder {
 
 export interface ElderInput {
   name: string;
+  /** 老人手机号：SPEC 06 起新建/更新都必传（更新不允许清空）。 */
+  phone: string;
   gender?: string | null;
   birth_date?: string | null;
   height_cm?: number | null;
