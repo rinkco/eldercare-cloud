@@ -2,7 +2,7 @@
 
 > 适用对象：正在开发 iOS / Android / 小程序 / H5 App 的移动端成员。  
 > 适用分支：`main`（spec-01 / spec-02 及后续增强均已合并）。  
-> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`specs/04-unified-family-access.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
+> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`specs/04-unified-family-access.md`、`specs/05-cancel-elder-binding.md`、`specs/06-elder-phone-binding.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
 > 冲突处理：规格与当前代码不一致时，以当前代码为准。
 
 ## 1. 概览与协作边界
@@ -115,8 +115,9 @@ docker compose exec backend python -m scripts.seed
 脚本可重复执行，主要行为：
 
 - 创建或同步 admin、family、测试账号 `laowang` 及其全局角色和密码。
-- 创建候选家属账号 `family-guest`：全局仍是 `family` 角色，不写入 `elder_access`（供演示添加成员）。
-- 创建或复用演示老人“演示老人-张奶奶”。
+- 创建候选家属账号 `family-guest`：全局仍是 `family` 角色，不写入 `elder_access`（供演示家属
+  「添加老人」自助绑定与「取消绑定」，也用于 admin 侧添加成员）。
+- 创建或复用演示老人“演示老人-张奶奶”，并补手机号 `13800000003`（仅当为空时补填，SPEC 06）。
 - 建立演示老人的监护关系：`family`（relation=`daughter`）与 `laowang`（relation 为空）；脚本可重复执行并收敛 relation。
 - 删除主照护者（owner）时代的旧演示账号 `family-owner`（若存在，SPEC 04）。
 - 补充两个联系人、一个“家附近围栏”、设备 `esp32-demo-0001`。
@@ -278,9 +279,13 @@ WWW-Authenticate: Bearer
 
 - 新账号默认没有任何 `elder_access` 关联，老人列表为空。
 - family 账号调用 `POST /api/v1/elders` 新建老人时会自动建立关联
-  （`relation=creator`），随后即可查看该老人数据。
-- 当前没有“把已有老人关联到某个账号”的管理接口与界面；如需让新账号访问已有
-  老人，需由部署方在数据库或种子脚本中补充 `elder_access` 行。
+  （`relation=creator`），随后即可查看该老人数据；新建时老人手机号 `phone` 必填。
+- family 账号可调用 `POST /api/v1/elders/add-by-phone` 凭老人手机号自助绑定已有档案
+  （命中即绑定当前账号，`relation` 为空）；如需把老人代绑定给某个家属账号，
+  由 admin 在管理台老人详情「监护成员」或 `PUT /api/v1/elders/{elder_id}/access` 完成。
+- family 账号可调用 `DELETE /api/v1/elders/{elder_id}/access/me` 解除自己与该老人的绑定
+  （老人档案与历史数据保留，随后该账号对该老人 REST 返回 403）。
+  *（本段由 SPEC 06 修订：此前只能由部署方在数据库或种子脚本中补 `elder_access` 行。）*
 
 ## 4. 角色与数据可见范围
 
@@ -297,7 +302,9 @@ WWW-Authenticate: Bearer
 | --- | --- | --- |
 | 登录、持有 JWT、WebSocket | 是 | 是 |
 | 老人列表 / 详情 | 全量 | 仅 `elder_access` 关联的老人 |
-| 新建 / 修改 / 删除老人 | 是 | 仅可见老人；family 新建后自动获得关联 |
+| 新建 / 修改 / 删除老人 | 是 | 仅可见老人；family 新建后自动获得关联；新建 `phone` 必填 |
+| 按手机号「添加老人」自助绑定自己 | 是（仅检索定位，不绑定） | 是 |
+| 解除自己与该老人的绑定 | 不适用（admin 按成员管理增删） | 是 |
 | 紧急联系人读取 / 整体替换 | 是 | 仅可见老人 |
 | 设备注册 / 列表 / 绑定 / 解绑 | 是 | 否，返回 403 |
 | 老人绑定设备（只读） | 全量 | 仅关联老人 |
@@ -307,7 +314,8 @@ WWW-Authenticate: Bearer
 | 告警列表 / 确认 | 全量 | 仅关联老人 |
 | 通知记录 | 全量 | 仅关联告警对应老人 |
 | 用户列表 / 用户编辑 / 查看账号监护关系 | 是 | 否，返回 403 |
-| 老人监护成员查看与管理 | 是 | 是（关联即可，家属成员权限一致） |
+| 查看监护成员（`GET /access`） | 是 | 是（仅关联老人，只读） |
+| 增删监护成员（`PUT /access`、候选检索） | 是 | 否，返回 403 |
 | 长辈视图（App 端展示层） | 不适用（管理台已移除） | App 可用；展示层只读，但账号权限没有降级 |
 
 注册接口（`POST /api/v1/auth/register`）公开可用，注册结果固定为 `family` 角色。
@@ -363,27 +371,54 @@ WWW-Authenticate: Bearer
 | 方法 | 路径 | 角色 | 请求 | 响应 | 错误语义 |
 | --- | --- | --- | --- | --- | --- |
 | GET | `/api/v1/elders` | admin / family | 无 | `ElderOut[]` | 401 |
-| POST | `/api/v1/elders` | admin / family | `ElderCreate` | 201：`ElderOut` | 401、422 |
+| POST | `/api/v1/elders` | admin / family | `ElderCreate`（`phone` 必填） | 201：`ElderOut` | 401、409、422 |
 | GET | `/api/v1/elders/{elder_id}` | admin / family | 路径参数 | `ElderOut` | 403、404 |
 | PUT | `/api/v1/elders/{elder_id}` | admin / family | `ElderUpdate`；局部更新 | `ElderOut` | 403、404、422 |
-| DELETE | `/api/v1/elders/{elder_id}` | admin / family | 无 | 204，无响应体 | 403、404 |
+| DELETE | `/api/v1/elders/{elder_id}` | 仅 admin | 无 | 204，无响应体 | 403、404 |
 | GET | `/api/v1/elders/{elder_id}/contacts` | admin / family | 无 | `ContactOut[]` | 403、404 |
 | PUT | `/api/v1/elders/{elder_id}/contacts` | admin / family | `ContactIn[]`；整体替换 | `ContactOut[]` | 403、404、422 |
-| GET | `/api/v1/elders/{elder_id}/access/candidates` | admin / family | 查询参数 `q`（1 到 32 字符，必填） | `AccessCandidateOut[]` | 403、404、422 |
+| POST | `/api/v1/elders/add-by-phone` | admin / family | `AddElderByPhoneIn` | 200：`ElderOut` | 401、404、409、422 |
+| GET | `/api/v1/elders/{elder_id}/access` | admin / family | 无 | `AccessMemberOut[]` | 403、404 |
+| PUT | `/api/v1/elders/{elder_id}/access` | 仅 admin | `AccessMemberIn[]`；整体替换，允许空数组 | `AccessMemberOut[]` | 403、404、422 |
+| DELETE | `/api/v1/elders/{elder_id}/access/me` | 仅 family | 无 | 204，无响应体 | 403、404 |
+| GET | `/api/v1/elders/{elder_id}/access/candidates` | 仅 admin | 查询参数 `q`（1 到 32 字符，必填） | `AccessCandidateOut[]` | 403、404、422 |
 
 老人相关接口（`GET` / `POST /api/v1/elders`、`GET` / `PUT /api/v1/elders/{elder_id}`）按
-关联关系判定可见范围；SPEC 04 起响应不再返回 `my_role`（家属成员权限一致，编辑与成员管理
-对已关联的 family 账号一律开放，删除老人仍仅 admin）。
+关联关系判定可见范围；SPEC 04 起响应不再返回 `my_role`（家属成员权限一致，编辑档案对已关联的
+family 账号开放，删除老人仍仅 admin）。SPEC 06 起 `ElderCreate.phone` 必填（`^1[3-9]\d{9}$`）、
+全局唯一（重复 409，`detail` 为「该手机号已存在老人档案，请改用「添加老人」」）；
+`ElderUpdate.phone` 可改不可清空（显式 `null` 返回 422）；`ElderOut.phone` 可空（存量档案）。
 
-监护成员 `GET` / `PUT /api/v1/elders/{elder_id}/access` 为整体替换语义：提交列表覆盖该老人
-全部监护成员；SPEC 05 起 `PUT` 允许空数组，即清空全部绑定（可取消任意账号、含最后一位成员
-与老人的绑定），鉴权为 admin 或该老人的任一已关联家属成员。
+监护成员 `GET` / `PUT /api/v1/elders/{elder_id}/access`：`GET` 为只读列表（admin 或该老人的
+已关联家属成员）；`PUT` 为整体替换语义，提交列表覆盖该老人全部监护成员，SPEC 05 起允许空数组
+（即清空全部绑定，含最后一位成员）。**SPEC 06 起 `PUT` 与候选检索鉴权收敛为仅 admin**
+（family → 403）；家属的自助绑定/解绑改用下面的 `add-by-phone` 与 `access/me`。
+
+按手机号添加老人（`POST /api/v1/elders/add-by-phone`，SPEC 06）：
+
+```json
+{ "phone": "13800000003" }
+```
+
+- 角色：admin / family；手机号格式同新建规则（`^1[3-9]\d{9}$`），`extra="forbid"`。
+- 未命中 → 404，`detail` 为「未找到该手机号对应的老人档案，请核对或改用「新建老人」」。
+- family：命中且未绑定 → 200 + `ElderOut`，并创建 `ElderAccess`（`relation` 为空）与审计
+  `add_elder_by_phone`；已绑定 → 409，`detail` 为「该老人已与当前账号绑定」。
+- admin：命中 → 200 + `ElderOut`，**不产生绑定、不写审计**（仅检索定位）。
+
+解除自己与老人的绑定（`DELETE /api/v1/elders/{elder_id}/access/me`，SPEC 06）：
+
+- 角色：仅 family（admin → 403）；只删除当前账号与该老人的关联，老人档案与历史数据保留。
+- 未绑定 → 404，`detail` 为「未绑定该老人」；成功 → 204，并写审计 `remove_self_elder_access`。
+- 允许解除最后一位成员（自助退出）；此后该账号对该老人的 REST 返回 403，WebSocket 可见范围
+  在 30 秒内刷新。
 
 老人新建示例：
 
 ```json
 {
   "name": "演示老人-张奶奶",
+  "phone": "13800000003",
   "gender": "female",
   "birth_date": "1945-03-12",
   "height_cm": 158,
@@ -432,9 +467,9 @@ WWW-Authenticate: Bearer
 
 #### 候选家属账号检索（`GET /api/v1/elders/{elder_id}/access/candidates`）
 
-供该老人的家属成员在添加监护成员时检索账号，避免向 family 暴露全量用户列表。
+供管理员在添加监护成员时检索账号，避免向 family 暴露全量用户列表（SPEC 06 起该接口仅 admin 可用）。
 
-- 鉴权：admin 或该老人的任一关联家属成员；未关联的 family 返回 403，老人不存在返回 404。
+- 鉴权：仅 admin；family（无论是否关联该老人）返回 403，老人不存在返回 404。
 - `q` 必填，1 到 32 字符，对 `username` 与 `display_name` 做大小写不敏感的包含匹配；越界返回 422。
 - 只返回全局角色为 `family` 且尚未关联该老人的账号，按 `id` 升序，最多 10 条。
 - 演示账号 `family-guest` 未关联任何老人，因此总能被该接口命中（否则候选恒为空）。
@@ -921,6 +956,8 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `ElderOut` | `address` | string \| null | 最长 255 字符 |
 | `ElderOut` | `notes` | string \| null | 备注，无显式长度限制 |
 | `ElderOut` | `created_at` | string | ISO 8601 UTC |
+| `ElderOut` | `phone` | string \| null | 老人手机号；新建必填、全局唯一，格式 `^1[3-9]\d{9}$`（11 位）；存量档案可能为 `null` |
+| `AddElderByPhoneIn` | `phone` | string | 「添加老人」入参：11 位手机号（`^1[3-9]\d{9}$`），精确匹配 `elders.phone` |
 | `ContactOut` | `id` | integer | 联系人 ID；整体替换后重新生成 |
 | `ContactOut` | `name` | string | 1 到 64 字符 |
 | `ContactOut` | `phone` | string | 1 到 32 字符，不校验号码格式 |
@@ -1241,7 +1278,7 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 | --- | --- |
 | 登录返回 401 | 检查用户名密码、`SEED_*` 是否已同步、是否应为 `application/json` |
 | 所有业务请求返回 401 | 检查 `Authorization: Bearer <token>` 是否为原生 HTTP 头 |
-| family 看不到演示老人 | 重新执行 seed，或检查该用户是否存在 `elder_access` 关联 |
+| family 看不到演示老人 | 重新执行 seed，或检查该用户是否存在 `elder_access` 关联；也可用演示老人手机号 `13800000003` 调 `add-by-phone` 自助绑定 |
 | family 返回 403 | 可能是设备/用户管理接口，或老人未关联 |
 | WebSocket 立即关闭 4401 | Token 错误、过期或 URL 未正确编码 |
 | WebSocket 自动断线 | 检查网络、Token 过期、代理 Upgrade 配置；恢复后先用 REST 补数据 |
@@ -1259,6 +1296,11 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - [ ] 使用 family 账号登录成功，响应包含 `access_token`、`token_type`、`expires_in`、`role`。
 - [ ] App 正确保存 Token，并为 REST 请求添加 Bearer 头。
 - [ ] `/api/v1/elders` 返回 family 关联的演示老人，而不是全量老人。
+- [ ] `POST /api/v1/elders` 缺 `phone` 返回 422，重复 `phone` 返回 409，响应 `ElderOut.phone` 正确。
+- [ ] family 调 `POST /api/v1/elders/add-by-phone` 命中手机号后自动绑定（老人出现在列表），重复调用返回 409。
+- [ ] admin 调 `add-by-phone` 返回 200 但不产生绑定（该老人成员列表不变）。
+- [ ] family 调 `DELETE /api/v1/elders/{id}/access/me` 返回 204，随后该老人详情返回 403；未绑定时返回 404。
+- [ ] family 调 `PUT /api/v1/elders/{id}/access` 与 `.../access/candidates` 均返回 403（仅 admin 可用）。
 - [ ] 能根据老人 `id` 拉取详情。
 - [ ] 能拉取联系人列表；保存时使用整表替换 JSON 数组。
 - [ ] 能拉取遥测；`metric=heart_rate` 返回按时间倒序的数据。
@@ -1285,9 +1327,14 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - 本地与当前 compose 默认使用 HTTP，不包含 HTTPS、TLS 证书和 WAF。
 - 没有 refresh token、Token 续期接口、Token 吊销接口和服务端 logout。
 - 已提供公开注册（`POST /api/v1/auth/register`，固定 family 角色）与 admin 用户编辑
-  （`PATCH /api/v1/users/{id}`），以及监护成员管理
-  （`GET/PUT /api/v1/elders/{id}/access`，家属成员权限一致）；
+  （`PATCH /api/v1/users/{id}`），以及监护成员查看（`GET /api/v1/elders/{id}/access`，家属只读）
+  与成员增删（`PUT /api/v1/elders/{id}/access`、候选检索，仅 admin，SPEC 06）；家属自助绑定
+  改用 `POST /api/v1/elders/add-by-phone`、自助解绑改用 `DELETE /api/v1/elders/{id}/access/me`。
   仍没有账号停用/删除、找回密码、自助改密；演示账号仍由 seed 与 `.env` 同步。
+- 老人手机号是档案标识与家属自助绑定凭据，不校验归属、不发送验证码，也没有邀请-接受两步确认；
+  知道手机号的 family 账号即可自助绑定该老人（绑定与解绑均写审计，admin 可移除成员）。
+- 老人手机号可编辑但不可清空；存量老人（迁移前创建）手机号可能为 `null`，需在管理台编辑补填
+  才能被 `add-by-phone` 命中；手机号变更后旧号无法再添加。
 - 没有 `/api/v1/me/*` 老人专属接口。
 - 没有独立 `elder` 登录角色；老人和 family 共用一个账号。
 - 长辈视图只读是展示层约定，不是权限隔离。

@@ -53,23 +53,30 @@ Invoke-RestMethod http://127.0.0.1:18080/readyz   # 数据库、迁移版本、M
 - Web 管理台：<http://127.0.0.1:3000>（演示账号 admin / admin123456、family / family123456、laowang / 123456、family-guest / guest123456）
 - Swagger：<http://127.0.0.1:18080/docs>
 - MQTT：`mqtt://127.0.0.1:1883`，账号见 `.env`
+- 演示老人手机号：`13800000003`（seed 写入「演示老人-张奶奶」，用于演示「添加老人」；
+  存量老人手机号可能为空，不影响既有功能，可在「编辑老人」中补填）
 
 ## 一键演示流程
 
 管理台演示（答辩推荐顺序）：打开 <http://127.0.0.1:3000>，用 `admin` 登录，
 在概览台查看 KPI、设备状态与实时流，进入老人详情维护联系人与围栏、在健康数据
 切换小时/天趋势，触发告警后在「告警与事件」页确认（事件在第二个 Tab）并查看
-通知记录；再用测试账号 `laowang` 登录，在老人详情「监护成员」Tab 搜索 `family-guest`
-添加成员与移除（家属成员权限一致，都可编辑档案）；最后用 `family` 登录验证家属可见范围。登录页支持
-自助注册家属账号；`admin` 可在「用户列表」中查看账号的监护关系、编辑显示名、
-手机号、角色或重置密码。
+通知记录；`admin` 在「老人档案」点「添加老人」输入演示老人手机号 `13800000003`
+只做检索定位（提示「该老人已存在」并打开档案），也能在老人详情「监护成员」Tab
+搜索 `family-guest` 现场添加再移除成员（演示后移除即可让该账号回到未绑定状态；
+家属侧该 Tab 只读）。随后用测试账号 `family-guest` 登录，在「老人档案」用手机号
+「添加老人」自助绑定到演示老人，再用行内「取消绑定」解除自己的关联；最后用 `family` 登录验证
+家属可见范围。新建/编辑老人时老人手机号必填（全局唯一、11 位），重复手机号会提示
+改用「添加老人」。登录页支持自助注册家属账号；`admin` 可在「用户列表」中查看账号的
+监护关系、编辑显示名、手机号、角色或重置密码。
 
 ```powershell
 # 1. 写入演示数据（可重复执行）
 docker compose exec backend python -m scripts.seed
 #    管理员 admin / admin123456
 #    家属 family / family123456、测试账号 laowang / 123456
-#    候选家属（未关联老人）family-guest / guest123456（演示用）
+#    候选家属（未关联老人）family-guest / guest123456（用于演示「添加老人」与「取消绑定」）
+#    演示老人「演示老人-张奶奶」手机号 13800000003（用于演示「添加老人」）
 
 # 2. 登录拿 JWT
 $body = '{"username":"admin","password":"admin123456"}'
@@ -199,7 +206,7 @@ docker compose down -v                  # 清空数据库卷，重新开始
 | `JWT_SECRET` | 空 | 必填，至少 32 字节随机值，启动时校验 |
 | `PIP_INDEX_URL` | pypi.org | 国内网络慢时可改为清华镜像 |
 | `SEED_TEST_USERNAME/PASSWORD` | laowang / 123456 | 测试账号；seed 把它关联到演示老人，登录页第三个快捷登录按钮使用 |
-| `SEED_GUEST_USERNAME/PASSWORD` | family-guest / guest123456 | 候选家属演示账号；seed 不关联任何老人，供演示添加成员 |
+| `SEED_GUEST_USERNAME/PASSWORD` | family-guest / guest123456 | 候选家属演示账号；seed 不关联任何老人，供演示「添加老人」自助绑定与「取消绑定」，也用于 admin 侧添加成员 |
 | `NEXT_PUBLIC_DEMO_LOGIN_ENABLED` | true | 登录页是否显示「快捷登录」；公开演示可置 false |
 | `NEXT_PUBLIC_DEMO_ADMIN/FAMILY_PASSWORD` | admin123456 / family123456 | 快捷登录注入的演示口令，需与 `SEED_*` 一致 |
 | `NEXT_PUBLIC_DEMO_TEST_USERNAME/PASSWORD` | laowang / 123456 | 登录页第三个快捷登录按钮（测试账号），需与 `SEED_TEST_*` 一致 |
@@ -226,6 +233,9 @@ docker compose down -v                  # 清空数据库卷，重新开始
 
 - 仅用于教学演示：JWT + RBAC + bcrypt + 审计日志，不包含 HTTPS、字段级加密、
   真实短信/微信通知、生产级高可用与合规能力。
+- 老人手机号既是档案标识也是家属自助绑定凭据（无邀请确认环节）：知道手机号的
+  family 账号即可自助「添加老人」绑定该老人，绑定与解绑均写审计日志，管理员可随时
+  在「监护成员」中移除成员或取消绑定。
 - 演示账号由 `.env` 的 `SEED_*` 配置（`scripts.seed` 会同步口令）；不要提交 `.env`，公网演示请使用强口令。
 - 设备事件/遥测的 QoS1 重复消息已做应用级去重；多实例部署需改用共享消息总线
   （当前按规格只支持单实例）。
