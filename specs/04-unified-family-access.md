@@ -7,6 +7,8 @@
 
 > **修订记录（SPEC 05：`specs/05-cancel-elder-binding.md`）：** 本规格保留的「至少保留一位家属成员」守卫已被 SPEC 05 取消：成员列表允许为空，admin 与任意家属成员都可以取消任意账号（含最后一位）与老人的绑定；以下正文保留原始表述，冲突处以 SPEC 05 为准。
 
+> **修订记录（SPEC 06：`specs/06-elder-phone-binding.md`）：** 本规格「家属成员权限一致（关联即可查看、编辑档案、管理监护成员）」中的**成员管理**部分已被 SPEC 06 收敛：`PUT /api/v1/elders/{elder_id}/access` 与 `GET .../access/candidates` 改为仅 admin（family 403）；家属「监护成员」Tab 只读，自助能力改为 `POST /api/v1/elders/add-by-phone`（按老人手机号绑定自己）与 `DELETE /api/v1/elders/{elder_id}/access/me`（解除自己）；「关联即可编辑老人档案」保持不变。以下正文保留原始表述，冲突处以 SPEC 06 为准。
+
 ## 为什么需要这份规格
 
 - SPEC 03 把 owner / member 两级成员角色落到管理台后，演示需要「主照护者 / 普通成员」两类家属账号、角色徽章、按角色门控的按钮与「至少保留一位 owner」约束；member 账号在界面上失去编辑与成员管理入口，直链还会落到权限空态。课设项目中家属即“一家人”，成员角色分层没有实际收益，反而增加演示与解释成本。
