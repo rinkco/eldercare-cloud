@@ -7,6 +7,12 @@ MQTT 接入、数据上报、事件上报和告警联调。
 [`app/mqtt/validation.py`](../app/mqtt/validation.py) 为准；设备侧只使用本指南
 列出的主题和字段，不要依赖未写入契约的字段。
 
+> 文档基线：`main @ cc3562b`（2026-10-14）。主题、字段与在线/离线行为以
+> [`app/mqtt/validation.py`](../app/mqtt/validation.py)、
+> [`app/mqtt/service.py`](../app/mqtt/service.py)、
+> [`app/routers/devices.py`](../app/routers/devices.py) 和
+> [`app/alerts.py`](../app/alerts.py) 为准。
+
 > 当前项目是教学演示环境：MQTT 使用明文 `1883`，所有设备共用一组账号口令，
 > 没有设备级 ACL。不要把真实个人信息接入公网环境。
 
@@ -29,7 +35,8 @@ flowchart LR
 2. Broker 校验用户名密码；后端以 QoS 1 订阅三类上行主题。
 3. 后端校验主题、`device_uid`、时间戳和载荷字段。
 4. 合法遥测写入 `telemetry`；合法事件生成 `event -> alert -> notification`。
-5. 设备被任意一条合法消息刷新为在线；超时后由后端判定离线并生成告警。
+5. 已绑定老人的设备被任意一条合法上行消息刷新为在线（未绑定时只有 `status`
+   能刷新在线）；超时后由后端判定离线并生成告警。
 
 ## 2. 接入前准备
 
@@ -53,12 +60,16 @@ $login = Invoke-RestMethod -Method Post `
 
 $headers = @{ Authorization = "Bearer $($login.access_token)" }
 
-# 可根据已有老人 ID 跳过创建步骤。
+# 联调推荐：直接复用 seed 演示老人（id=1，手机号 13800000003），本段创建整段跳过。
+# SPEC 06 起 phone 必填且全局唯一（^1[3-9]\d{9}$）：缺字段或格式错返回 422，重复返回 409。
 $elder = Invoke-RestMethod -Method Post `
   -Uri "$base/api/v1/elders" `
   -Headers $headers `
   -ContentType "application/json" `
-  -Body (@{ name = "硬件联调-测试老人" } | ConvertTo-Json)
+  -Body (@{
+    name  = "硬件联调-测试老人"
+    phone = "13900000001"
+  } | ConvertTo-Json)
 
 $device = Invoke-RestMethod -Method Post `
   -Uri "$base/api/v1/devices" `
@@ -81,7 +92,10 @@ Invoke-RestMethod -Method Post `
 
 - 设备 UID 正则：`^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$`。
 - UID 只能是 ASCII 字母、数字、下划线和短横线；首字符必须是字母或数字。
-- `kind` 可选值：`esp32`、`phone`、`wearable`；ESP32 使用 `esp32`。
+- `kind` 可选值：`esp32`、`phone`、`wearable`、`lora_node`；ESP32 使用 `esp32`，
+  LoRa 节点经网关桥接时使用 `lora_node`（见 [LoRa 接入指南](lora-integration.md)）。
+- 老人档案必须带手机号：11 位（`^1[3-9]\d{9}$`）且全局唯一；重复创建返回 `409`，
+  提示改用「添加老人」。绑定设备只需要 `elder_id`，联调推荐直接复用演示老人 `id=1`。
 - 重复注册同一 UID 返回 HTTP `409`，不要通过换 UID 规避；应先确认管理台已有设备。
 - 一台设备同一时刻只能绑定一位老人；重复绑定或绑定已占用设备返回 `409`。
 - 解绑：admin 在管理台设备页点「解绑」，或调用 `POST /api/v1/devices/{id}/unbind`；解绑后设备回到未绑定状态，历史遥测与事件保留。删除老人时也会自动解绑。
@@ -223,7 +237,7 @@ iot/v1/+/status      QoS 1
 
 ### 5.3 每类遥测示例
 
-```json
+```jsonl
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:00:01Z","metric":"heart_rate","value":78}
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:00:02Z","metric":"spo2","value":97}
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:00:03Z","metric":"steps","value":12}
@@ -233,7 +247,8 @@ iot/v1/+/status      QoS 1
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:00:07Z","metric":"battery","value":76}
 ```
 
-每次只上报一个 `metric`，不要在一次 JSON 中塞入多个指标。
+每行是一条独立消息（NDJSON），不是一次发送的数组；每次只上报一个 `metric`，
+不要在一次 JSON 中塞入多个指标。
 
 ## 6. 事件消息规范
 
@@ -286,12 +301,14 @@ iot/v1/+/status      QoS 1
 
 示例：
 
-```json
+```jsonl
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:10:00Z","type":"fall","severity":"critical","confidence":0.97,"payload":{"source":"mpu6050","accel_g":3.2}}
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:11:00Z","type":"sos","severity":"critical","payload":{"source":"gpio0_button"}}
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:12:00Z","type":"geofence_exit","severity":"warning","payload":{"source":"device_rule"}}
 {"device_uid":"esp32-lab-0001","ts":"2026-10-09T02:13:00Z","type":"low_battery","severity":"warning","payload":{"battery_percent":15}}
 ```
+
+每行是一条独立消息（NDJSON），每条消息单独发布到一个主题。
 
 ## 7. 状态心跳与离线判定
 
@@ -326,8 +343,11 @@ iot/v1/+/status      QoS 1
 
 在线规则：
 
-- 任何一条通过校验、且设备已注册/未停用的 `telemetry`、`event`、`status`
-  消息都会把设备设为 `online`。
+- 设备已注册且未停用时，任何一条通过校验的上行消息都会把设备设为 `online`
+  （`status`，或已绑定老人的 `telemetry`/`event`）。
+- `telemetry` 和 `event` 还要求设备已绑定老人：未绑定时消息会被直接丢弃，
+  也**不会**刷新在线状态，设备会一直显示 `offline`；只有 `status` 在未绑定时
+  仍能刷新在线时间和电量。
 - `last_seen_at` 使用后端收到消息时的服务器时间，不使用载荷中的 `ts`。
 - 心跳建议每 30 秒一次，不应超过 60 秒。这样允许一次或两次网络抖动，
   且与后端 30 秒 keepalive 配置一致。
@@ -357,10 +377,12 @@ value_num
 value_text
 lat
 lon
+meta_json
 ```
 
-全部相同才判定为重复。重复消息只刷新设备在线时间，不再写入遥测，也不会重新触发
-围栏或低电量规则。
+`meta_json` 对应可选的 `meta` 对象字段（省略时为空对象，写成 `null` 或数组会被
+判为非法载荷）。全部字段相同才判定为重复。重复消息只刷新设备在线时间，不再写入
+遥测，也不会重新触发围栏或低电量规则。
 
 ### 8.2 事件去重键
 
@@ -373,6 +395,7 @@ severity
 occurred_at
 confidence
 payload_json
+meta_json
 ```
 
 全部相同才判定为重复。重复事件不再生成新的 `event`、`alert`、`notification`。
@@ -384,14 +407,16 @@ payload_json
    避免被误判为重复。
 3. 不要使用“序号 + 当前时间”的方式重写重试消息；当前契约没有客户端消息 ID。
 4. `status` 没有历史去重逻辑，只更新最后状态，重复心跳不会新增 telemetry 记录。
-5. 设备未绑定老人时，遥测和事件会在去重前被丢弃；绑定后不会自动补传旧消息。
+5. 设备未绑定老人时，遥测和事件会在去重前被丢弃，也不会刷新设备在线状态；
+   绑定后不会自动补传旧消息。
 
 ## 9. 可复制联调示例
 
 ### 9.1 mosquitto_pub 命令行
 
 以下命令假定宿主机已安装 `mosquitto_pub`、Docker 栈已启动，并且设备 UID
-`esp32-demo-0001` 已注册并绑定。
+`esp32-demo-0001` 已注册并绑定。若未执行过 seed，把 `$uid` 换成你在第 2.1 节
+注册并绑定的 UID。
 
 ```powershell
 # 从 .env 读取连接参数，避免在命令中硬编码口令。
@@ -464,6 +489,7 @@ WIFI_PASSWORD = "YOUR_WIFI_PASSWORD"
 
 BROKER_HOST = "192.168.1.10"   # 改成 Docker 主机局域网 IP 或服务器公网 IP
 BROKER_PORT = 1883
+# 下面两行是占位示例，必须换成部署目录 .env 里的 MQTT_USER / MQTT_PASSWORD
 MQTT_USER = "eldercare"
 MQTT_PASSWORD = "change-me-mqtt"
 
@@ -668,6 +694,7 @@ main()
 5. 发布心率、血氧、步数和位置遥测：
 
    ```powershell
+   # 沿用第 2.1 节的 $base、$headers 与 $elder（如跳过了创建，$elder.id 换成手头的老人 ID）
    $headers = @{ Authorization = "Bearer $($login.access_token)" }
    Invoke-RestMethod `
      -Uri "$base/api/v1/elders/$($elder.id)/telemetry?metric=heart_rate" `
@@ -741,6 +768,9 @@ main()
 | 消息被丢弃：UID 不一致 | Topic 中 UID 与 JSON 的 `device_uid` 不同 | 两者逐字符一致，包括大小写 |
 | 消息被丢弃：设备未注册 | 只在 Broker 连接成功，未调用设备注册接口 | 管理台设备页或 `GET /api/v1/devices` 确认 UID |
 | 消息被丢弃：设备未绑定 | 遥测或事件先于绑定到达 | 先完成绑定；未绑定消息不会补传 |
+| 已上报但设备一直显示 `offline` | 设备未绑定老人：遥测/事件不刷新在线状态，只有 `status` 生效 | 先绑定老人；或确认至少 `status` 心跳能到达 |
+| 新建老人返回 `422` | 缺 `phone`，或不是 11 位手机号 | 补 `phone`；联调可直接复用演示老人 `id=1` |
+| 新建老人返回 `409` | 该手机号已被其他老人占用（全局唯一） | 改用「添加老人」按手机号绑定，或换一个手机号 |
 | 消息被丢弃：设备已停用 | 设备状态为 `disabled` | 设备页确认状态，由平台管理侧恢复 |
 | 消息被丢弃：时间戳错误 | `ts` 缺失、无时区或不是 ISO 8601 | 使用 `2026-10-09T02:00:00Z` 或带 `+08:00` |
 | 消息被丢弃：数值越界 | 心率、血氧、电量、位置或步数超出范围 | 对照第 5.1 节；ESP32 端先做范围裁剪/拒发 |
@@ -792,6 +822,7 @@ Test-NetConnection 127.0.0.1 -Port 1883
 | --- | --- | --- |
 | MQTT 上行遥测/事件/状态 | 已实现 | 按本指南接入 |
 | QoS 1 与应用层去重 | 已实现 | 重试保持逻辑消息字段稳定 |
+| LoRa 节点经网关桥接入云 | 已实现 | 设备 UID 用 `kind=lora_node` 注册，协议与载荷归一化见 [LoRa 接入指南](lora-integration.md) |
 | MQTT TLS | 未实现 | 当前只能使用明文 `1883` |
 | 设备级 MQTT ACL | 未实现 | 所有设备共用账号，固件必须约束自发 Topic |
 | 下行 `/cmd` | 未实现 | 不订阅、不依赖 |
@@ -802,11 +833,22 @@ Test-NetConnection 127.0.0.1 -Port 1883
 | 真实短信/微信通知 | 未实现 | 平台只写通知记录并打印控制台 |
 | 离线期间缓存与补传 | 平台未实现队列 | 关键事件如需补传，由设备端自行缓存 |
 
-## 14. 待确认
+## 14. 环境信息与未确定项
 
-- 公网演示环境当前为 `47.108.147.192`（API `18080`、MQTT `1883`、管理台 `3000`，
-  安全组已放行对应端口）；试用实例停机重建后公网 IP 可能变化，最终地址以联调群
-  公告为准。来源 IP 限制未启用，联调期间请使用强口令并避免真实个人数据。
-- 生产级 TLS、设备级 ACL、OTA 和下行命令是否后续实现，当前分支没有对应实现。
-- Mosquitto 未在仓库配置显式最大消息大小和发布频率限制；如果设备计划高频或
-  大载荷上报，需由部署方确认 Broker 限制。
+已确定，可直接按此联调：
+
+- 公网演示环境为 `47.108.147.192`：API `18080`、MQTT `1883`、管理台 `3000`，
+  安全组已放行这三个端口。服务跑在云厂商试用实例上，停机或重建后公网 IP 可能
+  变化，最终地址以联调群公告为准。
+- MQTT 只有一组账号口令，由部署负责人在群内提供；来源 IP 限制未启用，联调期间
+  请使用强口令并避免真实个人数据。
+- 设备注册、绑定、解绑都在管理台或 Swagger 上完成，属于管理侧操作，固件不调用。
+- 服务器代码已改为 git 仓库更新，服务器专属 `.env` 与 `docker-compose.override.yml`
+  不随代码更新覆盖，更新前会留回滚快照；这与设备侧固件无关。
+
+仍未确定，需要与部署方确认后再依赖：
+
+- 生产级 TLS、设备级 ACL、OTA 与下行 `/cmd` 在当前分支都没有实现；本版设备侧
+  不需要也不应依赖这些能力。
+- 仓库的 Mosquitto 配置没有显式设置最大消息大小、最大飞行窗口和发布频率限制，
+  实际生效值取决于镜像默认值与部署方配置。若计划高频或大载荷上报，请先确认。

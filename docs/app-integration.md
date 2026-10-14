@@ -1,8 +1,8 @@
 # 老人监护云平台 App 端对接文档
 
 > 适用对象：正在开发 iOS / Android / 小程序 / H5 App 的移动端成员。  
-> 适用分支：`main`（spec-01 / spec-02 及后续增强均已合并）。  
-> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`specs/04-unified-family-access.md`、`specs/05-cancel-elder-binding.md`、`specs/06-elder-phone-binding.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`README.md`、`scripts/seed.py`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
+> 适用版本：分支 `main`，对应提交 `cc3562b`（2026-10-14；SPEC 01–06 全部合入，含 SPEC 06 老人手机号与手机号绑定）。  
+> 口径来源：`specs/01-eldercare-cloud-platform.md`、`specs/02-eldercare-web-console.md`、`specs/03-console-members-and-ia.md`、`specs/04-unified-family-access.md`、`specs/05-cancel-elder-binding.md`、`specs/06-elder-phone-binding.md`、`app/routers/*.py`、`app/schemas.py`、`app/access.py`、`app/deps.py`、`app/ws.py`、`app/alerts.py`、`app/monitor.py`、`app/mqtt/service.py`、`app/mqtt/validation.py`、`README.md`、`scripts/seed.py`、`docs/lora-integration.md`、`frontend/src/lib/api.ts`、`frontend/src/lib/realtime.tsx`。  
 > 冲突处理：规格与当前代码不一致时，以当前代码为准。
 
 ## 1. 概览与协作边界
@@ -29,6 +29,8 @@ App 端的职责边界：
 以下事项需要产品/联调双方对齐（含最新进展）：
 
 - App 展示绑定设备或电量：已提供 `GET /api/v1/elders/{elder_id}/devices`（admin 与关联家属可用），字段含 `status`、`battery_percent`、`last_seen_at`。
+- 设备类型：除 ESP32/WiFi 直连设备外，还可能出现 `lora_node`（LoRa 节点经网关桥接入云）。这类设备的
+  遥测与事件会在 `meta_json` 里带网关元数据（`rssi`、`snr` 等），App 可忽略该字段；设备类型见 5.4，字段见 7.3 / 7.4。
 - 云端联调地址已就绪：REST API `http://47.108.147.192:18080`、管理台 `http://47.108.147.192:3000`、
   MQTT `47.108.147.192:1883`；账号口令请联系部署负责人获取，不要写入仓库。
   模拟器/真机访问宿主机或云端的最终基址仍按各自 App 工程配置确定。
@@ -46,6 +48,9 @@ App 端的职责边界：
 | Swagger | `http://127.0.0.1:18080/docs` | 可直接查看当前路由和 schema |
 | Web 管理台 | `http://127.0.0.1:3000` | Next.js + nginx 管理台，不是 App 必需依赖 |
 | MQTT | `mqtt://127.0.0.1:1883` | 设备侧联调使用，App 不直接连接 |
+
+> 端口可改：宿主机端口由 `.env` 的 `BACKEND_PORT` / `FRONTEND_PORT` 覆盖（默认 18080 / 3000，见 README）。
+> 18080 或 3000 被占用时先改这两项再 `docker compose up -d`，App 基址随之同步修改。
 
 App 在模拟器或真机上运行时，`localhost` 指手机/模拟器自身，不一定是运行后端的电脑。Android 模拟器访问宿主机通常使用 `10.0.2.2`，真机通常使用电脑局域网 IP 或上面的云端地址；使用本地后端时，具体地址由 App 工程配置决定。
 
@@ -116,8 +121,10 @@ docker compose exec backend python -m scripts.seed
 
 - 创建或同步 admin、family、测试账号 `laowang` 及其全局角色和密码。
 - 创建候选家属账号 `family-guest`：全局仍是 `family` 角色，不写入 `elder_access`（供演示家属
-  「添加老人」自助绑定与「取消绑定」，也用于 admin 侧添加成员）。
-- 创建或复用演示老人“演示老人-张奶奶”，并补手机号 `13800000003`（仅当为空时补填，SPEC 06）。
+  「添加老人」自助绑定与「取消绑定」，也用于 admin 侧添加成员）；脚本每次重跑都会清空该账号的
+  历史关联，保证它始终是「未关联任何老人」的候选账号。
+- 创建或复用演示老人“演示老人-张奶奶”，并补手机号 `13800000003`（仅当为空时补填，SPEC 06）；
+  若该手机号已被其他老人占用，脚本跳过补号并打印提示，不会让 seed 整体失败（改号或解除占用后再跑）。
 - 建立演示老人的监护关系：`family`（relation=`daughter`）与 `laowang`（relation 为空）；脚本可重复执行并收敛 relation。
 - 删除主照护者（owner）时代的旧演示账号 `family-owner`（若存在，SPEC 04）。
 - 补充两个联系人、一个“家附近围栏”、设备 `esp32-demo-0001`。
@@ -373,7 +380,7 @@ WWW-Authenticate: Bearer
 | GET | `/api/v1/elders` | admin / family | 无 | `ElderOut[]` | 401 |
 | POST | `/api/v1/elders` | admin / family | `ElderCreate`（`phone` 必填） | 201：`ElderOut` | 401、409、422 |
 | GET | `/api/v1/elders/{elder_id}` | admin / family | 路径参数 | `ElderOut` | 403、404 |
-| PUT | `/api/v1/elders/{elder_id}` | admin / family | `ElderUpdate`；局部更新 | `ElderOut` | 403、404、422 |
+| PUT | `/api/v1/elders/{elder_id}` | admin / family | `ElderUpdate`；局部更新 | `ElderOut` | 403、404、409、422 |
 | DELETE | `/api/v1/elders/{elder_id}` | 仅 admin | 无 | 204，无响应体 | 403、404 |
 | GET | `/api/v1/elders/{elder_id}/contacts` | admin / family | 无 | `ContactOut[]` | 403、404 |
 | PUT | `/api/v1/elders/{elder_id}/contacts` | admin / family | `ContactIn[]`；整体替换 | `ContactOut[]` | 403、404、422 |
@@ -393,6 +400,23 @@ family 账号开放，删除老人仍仅 admin）。SPEC 06 起 `ElderCreate.pho
 已关联家属成员）；`PUT` 为整体替换语义，提交列表覆盖该老人全部监护成员，SPEC 05 起允许空数组
 （即清空全部绑定，含最后一位成员）。**SPEC 06 起 `PUT` 与候选检索鉴权收敛为仅 admin**
 （family → 403）；家属的自助绑定/解绑改用下面的 `add-by-phone` 与 `access/me`。
+
+`PUT /access`（仅 admin）的附加约束：
+
+- 请求体是 `AccessMemberIn[]`，每项含 `user_id`（`> 0`，必填）与 `relation`（可选，最长 32 字符）。
+- `user_id` 指向的账号不存在：404，`detail` 为 `账号不存在：{id}`。
+- `user_id` 指向 admin 账号：422，`detail` 为 `只能关联家属账号`。
+- 同一次请求里 `user_id` 重复：422，`detail` 为 `监护成员不能重复`。
+- 提交 `[]` 表示清空该老人全部监护成员（允许最后一位成员被移除）。
+
+`GET /access` 响应示例（本地演示数据实测，字段为 `AccessMemberOut`）：
+
+```json
+[
+  {"id": 696, "user_id": 2, "username": "family", "display_name": "演示家属", "relation": "daughter"},
+  {"id": 697, "user_id": 164, "username": "laowang", "display_name": "老王", "relation": null}
+]
+```
 
 按手机号添加老人（`POST /api/v1/elders/add-by-phone`，SPEC 06）：
 
@@ -485,6 +509,7 @@ family 账号开放，删除老人仍仅 admin）。SPEC 06 起 `ElderCreate.pho
 ### 5.4 设备
 
 设备注册 / 列表 / 绑定 / 解绑仅限 admin；family 可通过老人维度只读接口查看绑定设备。
+设备类型包含 ESP32/WiFi 直连设备与 `lora_node`（LoRa 节点，经网关桥接入云，见 `docs/lora-integration.md`）。
 
 | 方法 | 路径 | 角色 | 请求 | 响应 | 错误语义 |
 | --- | --- | --- | --- | --- | --- |
@@ -515,7 +540,8 @@ family 账号开放，删除老人仍仅 admin）。SPEC 06 起 `ElderCreate.pho
 权限和业务限制：
 
 - `device_uid` 只允许字母、数字、下划线、短横线，必须字母或数字开头，最长 64。
-- `kind` 只能是 `esp32`、`phone`、`wearable`。
+- `kind` 只能是 `esp32`、`phone`、`wearable`、`lora_node`（`lora_node` 为 LoRa 节点，注册时
+  `device_uid` 用节点 EUI 或「前缀+EUI」，上行经网关桥接成同一套 MQTT 契约）。
 - 设备 UID 重复返回 409，`detail` 为 `设备 UID 已存在`。
 - 同一设备重复绑定同一老人返回 409。
 - 设备已被其他老人占用返回 409。
@@ -560,12 +586,17 @@ curl.exe -sS "http://127.0.0.1:18080/api/v1/elders/1/telemetry?metric=heart_rate
     "value_text": null,
     "lat": null,
     "lon": null,
+    "meta_json": {},
     "recorded_at": "2026-10-09T02:00:00Z"
   }
 ]
 ```
 
 位置遥测使用 `lat`、`lon`，活动/步态也可能使用 `value_text`。
+
+`meta_json` 是对象（普通 ESP32 设备为 `{}`）；LoRa 节点经网关上报时会带上
+`transport`、`gateway_eui`、`rssi`、`snr`、`sf`、`freq`、`fcnt`、`fport` 等元数据，
+App 可直接忽略该字段，或按需展示信号强度。
 
 #### 健康趋势
 
@@ -647,7 +678,9 @@ curl.exe -sS "http://127.0.0.1:18080/api/v1/elders/1/telemetry?metric=heart_rate
 
 `type`、`status` 查询值在 REST 层不做枚举校验；未知值返回空数组。
 
-事件不会被告警确认接口修改；确认告警只修改 `Alert.status`，`Event.status` 保持原值。
+事件没有独立的写接口；但确认告警时会**在同一事务里**把对应事件的 `status` 从 `new` 同步为
+`handled`（事件已是其他状态时保持不变）。也就是说 `Event.status` 可能随告警确认一起变化，
+App 拉取事件列表时应按当前值展示，不要把 `new` 当成永久状态。
 
 #### 告警列表
 
@@ -675,6 +708,7 @@ curl.exe -sS "http://127.0.0.1:18080/api/v1/elders/1/telemetry?metric=heart_rate
 
 - 不发送请求体。
 - `new` 告警会变为 `handled`，写入 `handled_at` 和当前用户 `handled_by`。
+- 同一事务把对应事件的 `status` 从 `new` 同步为 `handled`（`Event.status` 不再是恒定值）。
 - 重复确认是幂等操作，仍返回 200，状态保持 `handled`。
 - 已处理告警再次确认不会追加新的审计记录。
 - 告警不存在返回 404；family 访问未关联老人的告警返回 403。
@@ -691,7 +725,9 @@ curl.exe -sS "http://127.0.0.1:18080/api/v1/elders/1/telemetry?metric=heart_rate
   "handled_at": "2026-10-09T02:05:00Z",
   "handled_by": 2,
   "event_type": "fall",
-  "severity": "critical"
+  "severity": "critical",
+  "occurred_at": "2026-10-09T02:03:00Z",
+  "elder_name": "演示老人-张奶奶"
 }
 ```
 
@@ -942,6 +978,13 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `AccessCandidateOut` | `id` | integer | 账号 ID |
 | `AccessCandidateOut` | `username` | string | 账号 |
 | `AccessCandidateOut` | `display_name` | string \| null | 显示名 |
+| `AccessMemberOut` | `id` | integer | 监护关系行 ID（`elder_access.id`，整体替换后重新生成） |
+| `AccessMemberOut` | `user_id` | integer | 家属账号 ID |
+| `AccessMemberOut` | `username` | string | 家属账号名 |
+| `AccessMemberOut` | `display_name` | string \| null | 家属显示名 |
+| `AccessMemberOut` | `relation` | string \| null | 关系备注，最长 32 字符；自助绑定与 seed 的测试账号为 `null` |
+| `AccessMemberIn` | `user_id` | integer | 整体替换入参：家属账号 ID，必须 `> 0` 且存在 |
+| `AccessMemberIn` | `relation` | string \| null | 可选，最长 32 字符 |
 
 ### 7.2 老人与联系人
 
@@ -971,7 +1014,7 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | --- | --- | --- | --- |
 | `DeviceOut` | `id` | integer | 设备 ID |
 | `DeviceOut` | `device_uid` | string | 设备唯一 UID，MQTT 主题使用 |
-| `DeviceOut` | `kind` | string | `esp32`、`phone`、`wearable` |
+| `DeviceOut` | `kind` | string | `esp32`、`phone`、`wearable`、`lora_node` |
 | `DeviceOut` | `model` | string \| null | 设备型号 |
 | `DeviceOut` | `status` | string | `online`、`offline`、`disabled` |
 | `DeviceOut` | `elder_id` | integer \| null | 绑定的老人 ID |
@@ -997,6 +1040,7 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `TelemetryOut` | `value_text` | string \| null | 文本型指标值，如活动状态 |
 | `TelemetryOut` | `lat` | number \| null | 纬度 |
 | `TelemetryOut` | `lon` | number \| null | 经度 |
+| `TelemetryOut` | `meta_json` | object | 设备上报的扩展元数据；普通 ESP32 为 `{}`，LoRa 节点含 `transport`、`gateway_eui`、`rssi`、`snr`、`sf`、`freq`、`fcnt`、`fport`，App 可忽略 |
 | `TelemetryOut` | `recorded_at` | string | 记录时间，UTC |
 | `TrendBucket` | `bucket_start` | string | UTC 小时或天的桶起点 |
 | `TrendBucket` | `heart_rate` | `MetricStats` \| null | 心率统计 |
@@ -1007,7 +1051,7 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `MetricStats` | `min` | number | 最小值 |
 | `MetricStats` | `max` | number | 最大值 |
 | `MetricStats` | `count` | integer | 样本数 |
-| `ActivityCount` | `activity` | string | 活动文本；数据库不限制枚举，App 应容忍未知值 |
+| `ActivityCount` | `activity` | string | 活动文本；数据库不限制枚举，App 应容忍未知值。只上报数值 `value`、没有 `value_text` 的 activity 会被后端聚合为字面量 `unknown`（`app/routers/telemetry.py`），`unknown` 是正常数据，App 不要当脏数据丢弃 |
 | `ActivityCount` | `count` | integer | 次数 |
 
 当前 seed 和模拟器使用的活动值包括 `walking`、`resting`、`sleeping`。
@@ -1024,6 +1068,7 @@ docker compose exec backend python -m scripts.simulate_device --scenario fall
 | `EventOut` | `confidence` | number \| null | 0 到 1 |
 | `EventOut` | `occurred_at` | string | 事件发生时间，UTC |
 | `EventOut` | `payload_json` | object | 事件扩展数据 |
+| `EventOut` | `meta_json` | object | 事件扩展元数据（与遥测同源，LoRa 场景含网关信息），普通设备为 `{}` |
 | `EventOut` | `status` | string | `new`、`handled`、`closed` |
 | `AlertOut` | `id` | integer | 告警 ID |
 | `AlertOut` | `event_id` | integer | 对应事件 ID |
@@ -1114,12 +1159,16 @@ WebSocket 的 `alert` 与 REST `AlertOut` 都包含 `elder_name`、`occurred_at`
     "value_text": null,
     "lat": null,
     "lon": null,
+    "meta_json": {},
     "recorded_at": "2026-10-09T02:03:05+00:00"
   }
 }
 ```
 
 WebSocket 使用 `device_uid`；REST `TelemetryOut` 使用 `device_id`。两者不是同一字段。
+
+WS 的 `telemetry` 与 REST 一样带 `meta_json`（普通设备 `{}`，LoRa 节点含网关/RSSI 等元数据），
+普通 App 页面可以忽略。
 
 ### 8.4 关闭码与重连
 
@@ -1177,10 +1226,10 @@ onClose(code):
 | --- | --- | --- |
 | 401 | 未带 Token、Token 无效/过期、登录账号密码错误 | 清理会话并重新登录 |
 | 403 | family 访问设备/用户管理接口，或访问未关联老人/告警 | 提示无权限，不重复请求同一资源 |
-| 404 | 老人、设备、告警不存在，或路径不存在 | 刷新列表；如果是旧 ID，移除本地缓存 |
+| 404 | 老人、设备、告警不存在，`add-by-phone` 手机号未命中，`PUT /access` 里账号不存在，或路径不存在 | 刷新列表；如果是旧 ID，移除本地缓存；`add-by-phone` 未命中时引导改用「新建老人」 |
 | 400 | 业务校验失败，例如把系统中最后一个管理员降级 | 展示 `detail`，不重试 |
-| 409 | 设备 UID 重复、重复绑定、设备被占用、设备停用、注册用户名已存在 | 展示 `detail`，刷新设备状态 |
-| 422 | 字段缺失、类型错误、额外字段、数值越界、时间不带时区、多个主联系人 | 定位请求字段并修正 |
+| 409 | 老人手机号重复（新建/编辑/`add-by-phone`）、设备 UID 重复、重复绑定、设备被占用、设备停用、注册用户名已存在 | 展示 `detail`，刷新对应资源状态（老人手机号冲突时提示改用「添加老人」） |
+| 422 | 字段缺失、类型错误、额外字段、数值越界、时间不带时区、多个主联系人、监护成员重复或指向非家属账号 | 定位请求字段并修正 |
 | 503 | `/readyz` 检测到数据库、迁移或 MQTT 未就绪 | 后端不可用，延迟重试并提示联调环境未就绪 |
 
 常见错误体：
@@ -1231,7 +1280,7 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 ### 9.2 422 常见原因
 
 - 老人、联系人、设备、围栏请求体出现未定义字段。这些模型配置了 `extra="forbid"`。
-- `kind` 不是 `esp32`、`phone` 或 `wearable`。
+- `kind` 不是 `esp32`、`phone`、`wearable` 或 `lora_node`。
 - `enabled` 不是严格布尔。
 - `limit` 小于最小值或大于最大值。
 - `start`、`end` 不带时区。
@@ -1313,8 +1362,12 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - [ ] WebSocket 断开时，App 会按 30 秒轮询告警作为兜底。
 - [ ] WebSocket 重连后，App 会重新拉取 REST 最近数据，补齐断线区间。
 - [ ] 调用告警确认后，`AlertOut.status` 为 `handled`，`handled_at` 和 `handled_by` 非空。
+- [ ] 确认告警后，对应事件 `GET /api/v1/events?...` 里同一 `event_id` 的 `status` 已同步为 `handled`。
 - [ ] 重复确认同一告警仍返回 200，且状态保持 `handled`。
 - [ ] 通知接口返回 `channel=console`、`status=sent` 的记录。
+- [ ] `GET /api/v1/elders/{id}/access` 对家属返回 200 只读名单；admin 通过同样的接口可看到全部成员。
+- [ ] admin 调 `PUT /api/v1/elders/{id}/access` 能增删成员（含提交 `[]` 清空全部绑定），提交非家属账号返回 422。
+- [ ] 遥测与事件响应里的 `meta_json` 能按对象解析（普通 ESP32 设备为 `{}`，LoRa 设备含 `rssi`/`snr` 等）。
 - [ ] family 调用 `/api/v1/devices` 返回 403。
 - [ ] family 调用未关联老人的详情/联系人/围栏/遥测返回 403；事件/告警列表不会泄露未关联老人。
 - [ ] 使用过期或错误 Token 时，App 能清理本地会话并回到登录页。
@@ -1345,7 +1398,10 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 - WebSocket 没有离线补发、消息序号、业务心跳和送达确认。
 - 没有单条事件或告警详情接口，App 只能从列表接口按条件筛选。
 - 告警 REST 与 WebSocket 均包含 `occurred_at` 和 `elder_name`。
-- `Alert.status` 和 `Event.status` 是两套状态；确认告警不会改变事件状态。
+- `Alert.status` 和 `Event.status` 是两套字段，但会联动：确认告警时对应事件从 `new` 变为
+  `handled`；事件没有独立写接口，也没有其他流转入口（`closed` 当前不会被写入）。
+- 设备类型包含 `lora_node`（LoRa 节点，经网关桥接入云，接入手册见 `docs/lora-integration.md`）；
+  遥测与事件的 `meta_json` 会透传网关元数据，App 可忽略该字段。
 - `handled_by` 只有用户 ID，App 需要用户列表或本地映射才能显示处理人名称；family 无用户列表权限。
 - 通知只使用 console 模拟，不发送真实短信、微信或电话。
 - 没有多语言接口和 i18n 字段，接口错误与枚举按当前中文/英文原值处理。
@@ -1360,10 +1416,13 @@ App 的错误解析应同时兼容 `detail` 为字符串和数组两种情况。
 | --- | --- |
 | 登录与 Token | `app/routers/auth.py`、`app/security.py`、`app/config.py` |
 | 401/403 语义 | `app/deps.py`、`app/access.py` |
-| 老人与联系人 | `app/routers/elders.py` |
+| 老人与联系人、手机号绑定、监护成员 | `app/routers/elders.py`、`specs/06-elder-phone-binding.md` |
 | 设备 | `app/routers/devices.py` |
 | 遥测与趋势 | `app/routers/telemetry.py` |
-| 事件、告警、通知 | `app/routers/events.py` |
+| 事件、告警、通知 | `app/routers/events.py`、`app/alerts.py` |
+| 设备离线巡检 | `app/monitor.py` |
+| MQTT 接入与载荷校验 | `app/mqtt/service.py`、`app/mqtt/validation.py` |
+| LoRa 节点接入手册 | `docs/lora-integration.md`、`scripts/lora_gateway_bridge.py` |
 | 围栏 | `app/routers/geofences.py` |
 | 用户列表 | `app/routers/users.py` |
 | 请求/响应字段 | `app/schemas.py` |
