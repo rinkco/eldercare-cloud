@@ -54,9 +54,12 @@ class Elder(Base):
     """老人档案。"""
 
     __tablename__ = "elders"
+    # 手机号是老人的身份标识（SPEC 06）：唯一索引兼作并发兜底
+    __table_args__ = (Index("uq_elders_phone", "phone", unique=True),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(64))
+    phone: Mapped[str | None] = mapped_column(String(32))
     gender: Mapped[str | None] = mapped_column(String(16))
     birth_date: Mapped[date | None] = mapped_column(Date)
     height_cm: Mapped[int | None] = mapped_column(SmallInteger)

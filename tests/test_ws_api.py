@@ -20,6 +20,7 @@ from websockets.exceptions import ConnectionClosed
 from app.db import SessionLocal
 from app.models import Alert, AuditLog, Device, Elder, Event, Notification, Telemetry
 from tests.helpers import publish_mqtt
+from tests.helpers import unique_phone
 
 WS_URL = "ws://127.0.0.1:8000/api/v1/ws"
 
@@ -45,7 +46,7 @@ def ws_context(client: TestClient, db, seeded_users):
     elder = client.post(
         "/api/v1/elders",
         headers=_headers(admin_token),
-        json={"name": "WebSocket 测试老人"},
+        json={"name": "WebSocket 测试老人", "phone": unique_phone()},
     ).json()
     uid = f"esp32-{uuid.uuid4().hex[:10]}"
     device = client.post(

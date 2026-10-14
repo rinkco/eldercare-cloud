@@ -12,6 +12,7 @@ from sqlalchemy import delete, select
 from app.config import settings
 from app.db import SessionLocal
 from app.models import AuditLog, Device, Elder, Event, Telemetry
+from tests.helpers import unique_phone
 from tests.helpers import publish_mqtt as _publish
 
 
@@ -52,7 +53,9 @@ def bound_device(client: TestClient, db, seeded_users, broker_available):
         client, seeded_users.admin.username, seeded_users.admin_password
     )
     elder = client.post(
-        "/api/v1/elders", headers=_headers(token), json={"name": "MQTT 测试老人"}
+        "/api/v1/elders",
+        headers=_headers(token),
+        json={"name": "MQTT 测试老人", "phone": unique_phone()},
     ).json()
     uid = f"esp32-{uuid.uuid4().hex[:10]}"
     device = client.post(

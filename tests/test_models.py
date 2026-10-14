@@ -34,6 +34,7 @@ def test_required_indexes_are_defined() -> None:
         ("events", "ix_events_elder_occurred"),
         ("notifications", "ix_notifications_alert_id"),
         ("elder_access", "ix_elder_access_user_id"),
+        ("elders", "uq_elders_phone"),
     }
 
     actual = {
@@ -68,6 +69,7 @@ def test_migrated_database_contains_required_indexes() -> None:
                     "events",
                     "notifications",
                     "elder_access",
+                    "elders",
                 )
                 for index in inspector.get_indexes(table)
             }
@@ -79,6 +81,7 @@ def test_migrated_database_contains_required_indexes() -> None:
         ("events", "ix_events_elder_occurred"),
         ("notifications", "ix_notifications_alert_id"),
         ("elder_access", "ix_elder_access_user_id"),
+        ("elders", "uq_elders_phone"),
     } <= actual
 
 
@@ -88,6 +91,15 @@ def test_elder_access_metadata_has_no_role_column() -> None:
         column.name for column in Base.metadata.tables["elder_access"].columns
     }
     assert "role" not in columns
+
+
+def test_elder_metadata_has_phone_column() -> None:
+    """SPEC 06：老人档案新增手机号列，且模型声明唯一索引。"""
+    elders = Base.metadata.tables["elders"]
+    assert "phone" in {column.name for column in elders.columns}
+    assert {
+        (index.name, index.unique) for index in elders.indexes
+    } == {("uq_elders_phone", True)}
 
 
 def test_migrated_database_elder_access_has_no_role_column() -> None:

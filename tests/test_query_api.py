@@ -17,6 +17,7 @@ from app.models import (
     Notification,
     Telemetry,
 )
+from tests.helpers import unique_phone
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -45,12 +46,12 @@ def query_context(client: TestClient, db, seeded_users):
     linked = client.post(
         "/api/v1/elders",
         headers=_headers(admin_token),
-        json={"name": "查询测试老人-已关联"},
+        json={"name": "查询测试老人-已关联", "phone": unique_phone()},
     ).json()
     unlinked = client.post(
         "/api/v1/elders",
         headers=_headers(admin_token),
-        json={"name": "查询测试老人-未关联"},
+        json={"name": "查询测试老人-未关联", "phone": unique_phone()},
     ).json()
     uid = f"esp32-{uuid.uuid4().hex[:10]}"
     device = client.post(

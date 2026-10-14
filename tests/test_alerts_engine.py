@@ -22,6 +22,7 @@ from app.models import (
     Telemetry,
 )
 from tests.helpers import publish_mqtt as _publish
+from tests.helpers import unique_phone
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -50,7 +51,9 @@ def alert_device(client: TestClient, db, seeded_users):
         client, seeded_users.admin.username, seeded_users.admin_password
     )
     elder = client.post(
-        "/api/v1/elders", headers=_headers(token), json={"name": "告警测试老人"}
+        "/api/v1/elders",
+        headers=_headers(token),
+        json={"name": "告警测试老人", "phone": unique_phone()},
     ).json()
     uid = f"esp32-{uuid.uuid4().hex[:10]}"
     device = client.post(

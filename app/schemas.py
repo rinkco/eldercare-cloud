@@ -136,10 +136,18 @@ class UserUpdate(BaseModel):
         return self
 
 
+# 老人手机号格式（SPEC 06）：11 位、1 开头、第二位 3-9，全局唯一
+ELDER_PHONE_PATTERN = r"^1[3-9]\d{9}$"
+
+
 class ElderCreate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=64)
+    phone: str = Field(
+        pattern=ELDER_PHONE_PATTERN,
+        description="老人手机号：11 位、全局唯一，作为「添加老人」的凭据",
+    )
     gender: str | None = Field(default=None, max_length=16)
     birth_date: date | None = None
     height_cm: int | None = Field(default=None, ge=30, le=250)
@@ -152,6 +160,11 @@ class ElderUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str | None = Field(default=None, min_length=1, max_length=64)
+    phone: str | None = Field(
+        default=None,
+        pattern=ELDER_PHONE_PATTERN,
+        description="老人手机号：省略不修改；不允许显式 null（手机号不可清空）",
+    )
     gender: str | None = Field(default=None, max_length=16)
     birth_date: date | None = None
     height_cm: int | None = Field(default=None, ge=30, le=250)
@@ -160,10 +173,11 @@ class ElderUpdate(BaseModel):
     notes: str | None = None
 
     @model_validator(mode="after")
-    def _reject_explicit_null_name(self) -> "ElderUpdate":
-        """name 是必填列：允许省略，但显式提交 null 要返回 422。"""
-        if "name" in self.model_fields_set and self.name is None:
-            raise ValueError("name 不能为 null")
+    def _reject_explicit_nulls(self) -> "ElderUpdate":
+        """name 与 phone 都是必填列：允许省略，但显式提交 null 要返回 422。"""
+        for field in ("name", "phone"):
+            if field in self.model_fields_set and getattr(self, field) is None:
+                raise ValueError(f"{field} 不能为 null")
         return self
 
 
@@ -172,6 +186,24 @@ class ElderOut(ElderCreate):
 
     id: int
     created_at: datetime
+    # 覆盖父类声明：存量档案可能没有手机号（NULL）
+    phone: str | None = Field(
+        default=None, description="老人手机号；存量档案可能为空"
+    )
+
+
+class AddElderByPhoneIn(BaseModel):
+    """按手机号添加老人（SPEC 06）的入参。"""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={"examples": [{"phone": "13800000003"}]},
+    )
+
+    phone: str = Field(
+        pattern=ELDER_PHONE_PATTERN,
+        description="老人手机号：11 位，按此精确检索老人档案",
+    )
 
 
 class ContactIn(BaseModel):

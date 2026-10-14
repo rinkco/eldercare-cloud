@@ -38,3 +38,10 @@ def publish_mqtt(topic: str, payload: dict) -> None:
         except Exception:
             _client = None
             raise
+
+
+def unique_phone() -> str:
+    """生成测试用老人手机号：满足 1[3-9]\\d{9}，随机后缀避免相互冲突。"""
+    tail = uuid.uuid4().int % 10**9
+    second = 3 + uuid.uuid4().int % 7
+    return f"1{second}{tail:09d}"

@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
 from app.models import AuditLog, Elder, ElderAccess, Geofence
+from tests.helpers import unique_phone
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -42,12 +43,12 @@ def geo_context(client: TestClient, db, seeded_users):
     linked = client.post(
         "/api/v1/elders",
         headers=_headers(admin_token),
-        json={"name": "围栏测试老人"},
+        json={"name": "围栏测试老人", "phone": unique_phone()},
     ).json()
     unlinked = client.post(
         "/api/v1/elders",
         headers=_headers(admin_token),
-        json={"name": "围栏未关联老人"},
+        json={"name": "围栏未关联老人", "phone": unique_phone()},
     ).json()
     session.add(
         ElderAccess(

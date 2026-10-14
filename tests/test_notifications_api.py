@@ -16,6 +16,7 @@ from app.models import (
     Event,
     Notification,
 )
+from tests.helpers import unique_phone
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -43,7 +44,9 @@ def notify_context(client: TestClient, db, seeded_users):
 
     def create_elder(name: str) -> dict:
         return client.post(
-            "/api/v1/elders", headers=_headers(admin_token), json={"name": name}
+            "/api/v1/elders",
+            headers=_headers(admin_token),
+            json={"name": name, "phone": unique_phone()},
         ).json()
 
     linked = create_elder("通知测试老人-已关联")

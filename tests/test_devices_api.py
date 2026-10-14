@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import delete, select
 
 from app.models import AuditLog, Device, Elder
+from tests.helpers import unique_phone
 
 
 def _login(client: TestClient, username: str, password: str) -> str:
@@ -22,8 +23,11 @@ def _headers(token: str) -> dict[str, str]:
 
 
 def _create_elder(client: TestClient, token: str, name: str) -> dict:
+    """经接口新建老人；SPEC 06 起手机号必填。"""
     response = client.post(
-        "/api/v1/elders", headers=_headers(token), json={"name": name}
+        "/api/v1/elders",
+        headers=_headers(token),
+        json={"name": name, "phone": unique_phone()},
     )
     assert response.status_code == 201
     return response.json()
