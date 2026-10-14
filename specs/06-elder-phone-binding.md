@@ -1,6 +1,6 @@
 # SPEC 06 — 老人手机号（新建必填、全局唯一）与家属按手机号添加/解绑、监护成员权限收敛
 
-> **Status:** 已批准（2026-10-14 用户确认；实现中）
+> **Status:** 已实现（2026-10-14：本地与云端验收均通过）
 > **Depends on:** SPEC 01、SPEC 02、SPEC 03、SPEC 04（本规格修订其成员管理权限）、SPEC 05（本规格修订其「家属可取消任意绑定」部分）
 > **Date:** 2026-10-14
 > **Objective:** 老人档案新增手机号（新建必填、全局唯一、11 位格式）；「老人档案」新增「添加老人」（按老人手机号）；家属「取消绑定」只解除自己；监护成员整体替换与候选检索收敛为仅 admin；家属侧「监护成员」Tab 变为只读。
@@ -146,15 +146,59 @@
 
 ## 验收标准
 
-- [ ] 后端：`docker compose exec -T backend python -m pytest -q` 全量通过（记录 passed 数）。
-- [ ] 后端：`alembic check` 无 drift；`alembic current` = 0007；`migrate` Exited(0)。
-- [ ] 前端：`npx tsc --noEmit` 与 `npm run build` 通过。
-- [ ] e2e：Playwright 三档位全量通过（记录用例与通过数）。
-- [ ] 手工/接口验收：家属添加→列表可见→取消绑定→不可见；管理员添加不绑定；重复手机号 409 提示；家属成员 Tab 只读。
-- [ ] 文档与规格同步完成（含旧规格修订指路）。
-- [ ] 独立子智能体审查通过（无未解决的 Important/Critical；修复后复审查）。
-- [ ] GitHub：分支推送 + 合入 main（ff-only）+ push origin/main（按 AGENTS.md 流程）。
-- [ ] 云端（47.108.147.192）：服务器初始化 git 并改用 git 更新（保留 `.env` 与 `docker-compose.override.yml`，更新前保留回滚快照）；0007 迁移执行成功；真实环境实测（含为现网演示老人补手机号）。若 GitHub 连通性问题：回退 tarball 方式完成并说明原因与解决办法。
+- [x] 后端：`docker compose exec -T backend python -m pytest -q` → **135 passed**（1 warning，79.42s，提交前复核）。
+- [x] 后端：`alembic check` → `No new upgrade operations detected.`（无 drift）；`alembic current` → `0007_elder_phone (head)`；本地与云端 `migrate` 均 `Exited (0)`。
+- [x] 前端：`npx tsc --noEmit` 通过（提交前复核）；`npm run build` 通过（本地构建 + 云端 Dockerfile 内 `next build` 重建成功）。
+- [x] e2e：Playwright 三档位（desktop-chromium / desktop-wide / mobile-chromium）**55 passed**（实现阶段本地执行）。
+- [x] 手工/接口验收：云端 32 项接口实测全部 PASS（见下方「交付记录」，覆盖家属添加→可见→取消绑定→不可见、管理员只检索不绑定、重复手机号 409、家属成员权限 403、`readyz`、OpenAPI 与「监护成员」Tab 只读的前端构建产物）。
+- [x] 文档与规格同步完成（`README.md`、`docs/business-flows.md`、`docs/app-integration.md`；`specs/02`–`specs/05` 顶部修订指路）。
+- [x] 独立子智能体审查通过（两轮均无未决 Important/Critical 问题）。
+- [x] GitHub：分支 `spec-06-elder-phone-binding` 推送 + `main` ff-only 合并 + `push origin/main`（按 AGENTS.md 流程，无 force push、未删分支）。
+- [x] 云端（47.108.147.192）：服务器初始化 git 并改用 git 更新（`.env` 与 `docker-compose.override.yml` 保留、sha256 一致，更新前保留回滚快照）；0007 迁移执行成功；真实环境实测通过（含为现网老人补手机号）。GitHub 443 不可达，按用户约定以 git bundle 完成本次更新，原因与解法见「交付记录」。
+
+## 交付记录（2026-10-14）
+
+### 提交与合并（main = `74a276c`）
+
+| SHA | 提交 |
+| --- | --- |
+| `e6bcf47` | `docs(spec): 新增 SPEC 06 老人手机号与绑定规格并标注旧规格修订` |
+| `8eba5c6` | `feat(api): SPEC 06 老人手机号必填唯一与家属按手机号添加/解绑（迁移 0007）` |
+| `e10d86b` | `feat(web): SPEC 06 添加老人/取消绑定/成员 Tab 家属只读与手机号字段` |
+| `74a276c` | `docs: 同步 README 与业务/对接文档（SPEC 06 流程与权限）` |
+
+分支 `spec-06-elder-phone-binding` 已推送；`main` 以 ff-only 合并后推送（`c9b50ba..74a276c`）。
+
+### 云端更新方式：git bundle（GitHub 443 不可达的受控回退）
+
+- **原始错误**：服务器 `git fetch https://github.com/...` → `error: RPC failed; curl 16 Error in the HTTP2 framing layer` / `fatal: expected flush after ref listing`，重试后 `Failed to connect to github.com port 443 after 131042 ms: Connection timed out`。
+- **诊断证据**：DNS 正常（`github.com → 20.205.243.166`）；`curl https://github.com` 443 超时（20s，code 000）；`curl https://www.baidu.com` → 200（0.2s）；`ssh -T git@github.com`（22 端口）完成 SSH 握手（仅缺公钥）→ 判断为**服务器出站 443 到 GitHub 被阻断，22 端口可达**。
+- **本次处理**：本地 `git bundle create`（411KB，`git bundle verify` 报 `The bundle records a complete history`，tip `74a276c`）→ scp 到服务器 → `git fetch /root/eldercare-main-74a276c.bundle main:refs/remotes/origin/main` → `git checkout -f -B main refs/remotes/origin/main`。服务器仍是真正的 git 仓库，`origin` 仍指向 `github.com/rinkco/eldercare-cloud.git` 且已设置 upstream，网络恢复后直接 `git fetch origin` 即可，无需重建。
+- **长期解法（待用户选择）**：① 服务器生成 SSH deploy key（**22 端口已验证可达**）→ GitHub 仓库添加只读 Deploy Key → `git remote set-url origin git@github.com:rinkco/eldercare-cloud.git`；② 服务器配置出站 HTTPS 代理／GitHub 镜像；③ 继续沿用 bundle/tarball 传输流程。方案 ① 改动最小且已验证链路可用。
+
+### 回滚快照与服务器专属文件
+
+- 快照：`/opt/eldercare-cloud.pre-74a276c-20261014-093145`（更新前完整目录，1.5M）。
+- `.env` sha256 `b112dc35…fc81`、`docker-compose.override.yml` sha256 `759b2757…4ec5`，更新前后**完全一致**，mtime 未变。
+- 全树哈希清单比对：更新前 161 个文件 → 更新后 164 个；**无任何文件丢失**，新增仅 `alembic/versions/0007_elder_phone.py`、`specs/06-elder-phone-binding.md`、`tests/test_migration_0007.py`。
+- 容器：`migrate` Exited(0)（日志含 `Running upgrade 0006_drop_elder_access_role -> 0007_elder_phone`）；`backend`/`frontend` healthy；前端镜像重建产物内含「添加老人」「取消绑定」文案，首页 200。
+
+### 云端实测结果（服务器本机 `127.0.0.1:18080`，32 项 PASS / 0 FAIL）
+
+1. 三个账号登录均取得 token（admin / family / family-guest）。
+2. 家属：`POST /api/v1/elders/add-by-phone {"phone":"13800000003"}` → 200（id=1），列表出现 id=1；重复 → 409；未命中手机号 → 404。
+3. 家属：`DELETE /api/v1/elders/1/access/me` → 204，列表回到 `[]`；重复 → 404；老人档案仍在（admin 200）。
+4. 管理员：`add-by-phone` → 200（id=1），老人 1 成员集合不变（`2,329`），`add_elder_by_phone` 审计计数未增加（仅家属那次 +1）。
+5. 新建老人：重复手机号 → 409 且 detail 含「添加老人」；缺手机号 → 422；格式非法 → 422。
+6. 权限收敛：family / family-guest 的 `PUT /access`、`GET /access/candidates` → 403；family-guest `GET /access` → 403（无关联）；admin `candidates` → 200。
+7. 存量补号：老人 187（王爷爷）PUT 补 `13800000004` → 200 并回读一致；撞号新建 → 409。
+8. `readyz` → 200；OpenAPI 含 `/api/v1/elders/add-by-phone` 与 `/api/v1/elders/{elder_id}/access/me`。
+
+### 数据与痕迹
+
+- seed：老人 1（演示老人-张奶奶）手机号 `13800000003`，无「占号跳过」警告。
+- 验痕迹清理：删除本次验收产生的 `audit_logs` 2 条（id 1023/1024：family-guest 的 `add_elder_by_phone`、`remove_self_elder_access`）；复核 family-guest 绑定数 `0`、老人 1 成员仍为 `2,329`。
+- 老人 187 补号产生 1 条 `update_elder` 审计（属正常业务变更，保留）。
 
 ## 规格修订说明
 
